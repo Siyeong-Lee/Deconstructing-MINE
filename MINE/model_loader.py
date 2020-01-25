@@ -1,12 +1,12 @@
 import os
 import torch, torchvision
-import MINE.models.concat as concatnet
-import MINE.models.embedded as embeddednet
+import models.concat as concatnet
+import models.embedded as embeddednet
 
 # map between model name and function
 models = {
-    'concat'   : concatnet.ConcatNet20
-    'embedded' : resnet.EmbeddedNet20
+    'concat'   : concatnet.ConcatNet20,
+    'embedded' : embeddednet.EmbeddedNet20
 }
 
 def load(model_name, model_file=None, data_parallel=False):

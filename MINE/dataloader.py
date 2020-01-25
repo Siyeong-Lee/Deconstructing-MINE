@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-import torchvision
+from torch.utils.data import Dataset
 
 class random_number(Dataset):
     def __init__(self, batch_size, num_classes, length, isOnehot=True):
@@ -12,7 +12,7 @@ class random_number(Dataset):
     def __len__(self):
         return self.length
 
-    def __getitem(self, index):
+    def __getitem__(self, index):
         x_joint_sample = torch.randint(low=0, high=self.num_classes,
             size=(self.batch_size, ))
         y_joint_sample = x_joint_sample.clone()
