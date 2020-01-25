@@ -1,0 +1,195 @@
+from __future__ import print_function
+import os
+import random
+import numpy as np
+import argparse
+
+import torch
+import torch.nn as nn
+import torch.nn.init as init
+import torch.optim as optim
+import torch.nn.functional as F
+import torch.backends.cudnn as cudnn
+import torch.nn.parallel
+
+import model_loader
+import dataloader
+import losses
+
+def init_params(net):
+    for m in net.modules():
+        if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
+            init.kaiming_normal_(m.weight, mode='fan_in')
+            if m.bias is not None:
+                init.constant_(m.bias, 0)
+        elif isinstance(m, nn.BatchNorm2d):
+            init.constant_(m.weight, 1)
+            init.constant_(m.bias, 0)
+        elif isinstance(m, nn.Linear):
+            init.normal_(m.weight, std=1e-3)
+            if m.bias is not None:
+                init.constant_(m.bias, 0)
+
+# Training
+def train(loader, net, criterion, optimizer, use_cuda=True):
+    net.train()
+    train_loss = 0
+
+    joint_samples, marginal_samples = loader.next()
+
+    if use_cuda:
+        joint_samples = joint_samples.cuda()
+        marginal_samples = marginal_samples.cuda()
+        
+    optimizer.zero_grad()
+        
+    joint_value = net(joint_samples[0], joint_samples[1])
+    marginal_value = net(marginal_samples[0], marginal_samples[1])
+        
+    loss, mi = criterion(joint_value, marginal_value)
+    loss.backward()
+    optimizer.step()
+    
+    return loss, mi
+
+def name_save_folder(args):
+    save_folder = args.model + '_' + str(args.optimizer) + '_lr=' + str(args.lr)
+    if args.lr_decay != 0.1:
+        save_folder += '_lr_decay=' + str(args.lr_decay)
+    save_folder += '_cls=' + str(args.num_classes)
+    save_folder += '_str=' + str(args.stretegy)
+    save_folder += '_opt=' + str(args.optimizer)
+    save_folder += '_bs=' + str(args.batch_size)
+    save_folder += '_wd=' + str(args.weight_decay)
+    save_folder += '_mom=' + str(args.momentum)
+    save_folder += '_save_epoch=' + str(args.save_epoch)
+    save_folder += '_loss=' + str(args.loss_name)
+    
+    if args.ngpu > 1:
+        save_folder += '_ngpu=' + str(args.ngpu)
+    if args.idx:
+        save_folder += '_idx=' + str(args.idx)
+
+    return save_folder
+
+if __name__ == '__main__':
+    # Training options
+    parser = argparse.ArgumentParser(description='PyTorch MINE Training')
+    parser.add_argument('--num_classes', default=4, type=int)
+    parser.add_argument('--batch_size', default=16, type=int)
+    parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
+    parser.add_argument('--lr_decay', default=0.1, type=float, help='learning rate decay rate')
+    parser.add_argument('--strategy', default='basic', help='strategy: basic | lookahead | SWA')
+    parser.add_argument('--optimizer', default='sgd', help='optimizer: sgd | adam ')
+    parser.add_argument('--weight_decay', default=0.0005, type=float)
+    parser.add_argument('--momentum', default=0.9, type=float)
+    parser.add_argument('--iteration', default=1000, type=int, metavar='N', help='number of total iteration to run')
+    parser.add_argument('--ngpu', type=int, default=1, help='number of GPUs to use')
+    parser.add_argument('--rand_seed', default=0, type=int, help='seed for random num generator')
+    parser.add_argument('--resume_model', default='', help='resume model from checkpoint')
+    parser.add_argument('--resume_opt', default='', help='resume optimizer from checkpoint')
+
+    # model parameters
+    parser.add_argument('--model', '-m', default='concat')
+    parser.add_argument('--loss_name', '-l', default='MINE_stable', help='loss functions: basic | MINE_stable | MINE_SH')
+
+    # data parameters
+    parser.add_argument('--idx', default=0, type=int, help='the index for the repeated experiment')
+
+    args = parser.parse_args()
+
+    print('\nLearning Rate: %f' % args.lr)
+    print('\nDecay Rate: %f' % args.lr_decay)
+
+    use_cuda = torch.cuda.is_available()
+    print('Current devices: ' + str(torch.cuda.current_device()))
+    print('Device count: ' + str(torch.cuda.device_count()))
+
+    # Set the seed for reproducing the results
+    random.seed(args.rand_seed)
+    np.random.seed(args.rand_seed)
+    torch.manual_seed(args.rand_seed)
+    if use_cuda:
+        torch.cuda.manual_seed_all(args.rand_seed)
+        cudnn.benchmark = True
+
+    lr = args.lr  # current learning rate
+    start_epoch = 1  # start from epoch 1 or last checkpoint epoch
+
+    if not os.path.isdir(args.save):
+        os.mkdir(args.save)
+
+    save_folder = name_save_folder(args)
+    if not os.path.exists('trained_nets/' + save_folder):
+        os.makedirs('trained_nets/' + save_folder)
+
+    f = open('trained_nets/' + save_folder + '/log.out', 'a', 0)
+
+    train_loader = dataloader.get_data_loaders(args.batch_size,
+        args.num_classes, args.iteration)
+
+    if args.label_corrupt_prob and not args.resume_model:
+        torch.save(trainloader, 'trained_nets/' + save_folder + '/trainloader.dat')
+        torch.save(testloader, 'trained_nets/' + save_folder + '/testloader.dat')
+
+    # True MI
+    true_mi = math.log(args.num_classes)
+
+    # Model
+    if args.resume_model:
+        # Load checkpoint.
+        print('==> Resuming from checkpoint..')
+        checkpoint = torch.load(args.resume_model)
+        net = model_loader.load(args.model)
+        net.load_state_dict(checkpoint['state_dict'])
+        start_epoch = checkpoint['epoch'] + 1
+    else:
+        net = model_loader.load(args.model)
+        print(net)
+        init_params(net)
+
+    if args.ngpu > 1:
+        net = torch.nn.DataParallel(net)
+    
+    if args.loss_name == 'basic':
+        criterion = losses.MI_BasicLoss(args.batch_size)
+    elif args.loss_name == 'MINE_stable':
+        criterion = losses.MI_MALoss(args.batch_size) 
+    elif args.loss_name == 'MINE_SH':
+        criterion = losses.MI_SHLoss(args.batch_size)
+    else:
+        assert NotImplementedError
+
+    if use_cuda:
+        net.cuda()
+        criterion = criterion.cuda()
+
+    # Optimizer
+    if args.optimizer == 'sgd':
+        optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay, nesterov=True)
+    else:
+        optimizer = optim.Adam(net.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+
+
+    # Strategy
+    if args.strategy == 'basic':
+        optimizer = optimizer        
+    elif args.strategy == 'look_ahead':
+        la_steps = 4
+        la_alpha = 0.01
+        optimizer = Lookahead(optimizer, la_steps=la_steps, la_alpha=la_alpha)
+    else:
+        assert NotImplementedError
+
+    if args.resume_opt:
+        checkpoint_opt = torch.load(args.resume_opt)
+        optimizer.load_state_dict(checkpoint_opt['optimizer'])
+
+    for iteration in range(start_iteration, args.iteration + 1):
+        loss, est_mi = train(loader, net, criterion, optimizer, use_cuda)
+
+        status = 'e: %d loss: %.5f estimiated_mi: %.5f\n' % (iteration, loss, est_mi, true_mi)
+        print(status)
+        f.write(status)
+
+    f.close()
