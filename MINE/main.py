@@ -1,6 +1,7 @@
 from __future__ import print_function
 import os
 import random
+import math
 import numpy as np
 import argparse
 
@@ -33,8 +34,7 @@ def init_params(net):
 # Training
 def train(loader, net, criterion, optimizer, use_cuda=True):
     net.train()
-    train_loss = 0
-
+    loss = 0
     joint_samples, marginal_samples = loader.next()
 
     if use_cuda:
@@ -57,12 +57,12 @@ def name_save_folder(args):
     if args.lr_decay != 0.1:
         save_folder += '_lr_decay=' + str(args.lr_decay)
     save_folder += '_cls=' + str(args.num_classes)
-    save_folder += '_str=' + str(args.stretegy)
+    save_folder += '_str=' + str(args.strategy)
     save_folder += '_opt=' + str(args.optimizer)
     save_folder += '_bs=' + str(args.batch_size)
     save_folder += '_wd=' + str(args.weight_decay)
     save_folder += '_mom=' + str(args.momentum)
-    save_folder += '_save_epoch=' + str(args.save_epoch)
+    save_folder += '_iteration=' + str(args.iteration)
     save_folder += '_loss=' + str(args.loss_name)
     
     if args.ngpu > 1:
@@ -84,6 +84,7 @@ if __name__ == '__main__':
     parser.add_argument('--weight_decay', default=0.0005, type=float)
     parser.add_argument('--momentum', default=0.9, type=float)
     parser.add_argument('--iteration', default=1000, type=int, metavar='N', help='number of total iteration to run')
+    parser.add_argument('--logs', default='logs',help='path to save logs')
     parser.add_argument('--ngpu', type=int, default=1, help='number of GPUs to use')
     parser.add_argument('--rand_seed', default=0, type=int, help='seed for random num generator')
     parser.add_argument('--resume_model', default='', help='resume model from checkpoint')
@@ -102,8 +103,11 @@ if __name__ == '__main__':
     print('\nDecay Rate: %f' % args.lr_decay)
 
     use_cuda = torch.cuda.is_available()
-    print('Current devices: ' + str(torch.cuda.current_device()))
-    print('Device count: ' + str(torch.cuda.device_count()))
+    if use_cuda:
+        print('Current devices: ' + str(torch.cuda.current_device()))
+        print('Device count: ' + str(torch.cuda.device_count()))
+    else:
+        print('Current devices: CPU only')
 
     # Set the seed for reproducing the results
     random.seed(args.rand_seed)
@@ -114,23 +118,19 @@ if __name__ == '__main__':
         cudnn.benchmark = True
 
     lr = args.lr  # current learning rate
-    start_epoch = 1  # start from epoch 1 or last checkpoint epoch
+    start_iteration = 1  # start from epoch 1 or last checkpoint epoch
 
-    if not os.path.isdir(args.save):
-        os.mkdir(args.save)
+    if not os.path.isdir(args.logs):
+        os.mkdir(args.logs)
 
     save_folder = name_save_folder(args)
-    if not os.path.exists('trained_nets/' + save_folder):
-        os.makedirs('trained_nets/' + save_folder)
+    if not os.path.exists(os.path.join(args.logs,save_folder)):
+        os.makedirs(os.path.join(args.logs, save_folder))
 
-    f = open('trained_nets/' + save_folder + '/log.out', 'a', 0)
+    f = open(os.path.join(args.logs, save_folder,'log.out'), 'a')
 
-    train_loader = dataloader.get_data_loaders(args.batch_size,
+    loader = dataloader.get_data_loaders(args.batch_size,
         args.num_classes, args.iteration)
-
-    if args.label_corrupt_prob and not args.resume_model:
-        torch.save(trainloader, 'trained_nets/' + save_folder + '/trainloader.dat')
-        torch.save(testloader, 'trained_nets/' + save_folder + '/testloader.dat')
 
     # True MI
     true_mi = math.log(args.num_classes)
@@ -140,11 +140,11 @@ if __name__ == '__main__':
         # Load checkpoint.
         print('==> Resuming from checkpoint..')
         checkpoint = torch.load(args.resume_model)
-        net = model_loader.load(args.model)
+        net = model_loader.load(args.model, args.num_classes)
         net.load_state_dict(checkpoint['state_dict'])
-        start_epoch = checkpoint['epoch'] + 1
+        start_iteration = checkpoint['iteration'] + 1
     else:
-        net = model_loader.load(args.model)
+        net = model_loader.load(args.model, args.num_classes)
         print(net)
         init_params(net)
 
@@ -188,7 +188,7 @@ if __name__ == '__main__':
     for iteration in range(start_iteration, args.iteration + 1):
         loss, est_mi = train(loader, net, criterion, optimizer, use_cuda)
 
-        status = 'e: %d loss: %.5f estimiated_mi: %.5f\n' % (iteration, loss, est_mi, true_mi)
+        status = 'e: %d loss: %.5f estimiated_mi: %.5f (%.5f)\n' % (iteration, loss, est_mi, true_mi)
         print(status)
         f.write(status)
 

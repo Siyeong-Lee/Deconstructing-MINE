@@ -9,7 +9,7 @@ class MI_BasicLoss(nn.Module):
 
     def forward(self, joint_value, marginal_value):
         t = torch.mean(joint_value)
-        et = torch.add(torch.logsumexp(marginal_value), 
+        et = torch.add(torch.logsumexp(marginal_value, dim=0), 
             -math.log(self.batch_size))
 
         mi = t - et
@@ -21,19 +21,20 @@ class MI_MALoss(nn.Module):
         super(MI_MALoss, self).__init__()
         self.batch_size = batch_size
         self.prev_et = None
+        self.weight = weight
 
     def forward(self, joint_value, marginal_value):
         t = torch.mean(joint_value)
-        et = torch.add(torch.logsumexp(marginal_value),
+        et = torch.add(torch.logsumexp(marginal_value, dim=0),
             - math.log(self.batch_size))
 
         mi = t - et
-        if not self.prev_et:
-            et = weight*et + (1-weight) * self.prev_et
-            self.prev_et = et
-            loss = -(t - et)
-        else:
-            loss = t - et
+        if self.prev_et:
+            et = self.weight*et + (1-self.weight) * self.prev_et
+        
+        self.prev_et = et
+        loss = -(t - et)
+
         return loss, mi
 
 class MI_SHLoss(nn.Module):
@@ -43,7 +44,7 @@ class MI_SHLoss(nn.Module):
 
     def forward(self, joint_value, marginal_value):
         t = torch.mean(joint_value)
-        et = torch.add(torch.logsumexp(marginal_value),
+        et = torch.add(torch.logsumexp(marginal_value, dim=0),
             - math.log(self.batch_size))
 
         mi = t - et

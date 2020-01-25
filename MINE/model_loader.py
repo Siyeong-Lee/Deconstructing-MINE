@@ -9,8 +9,8 @@ models = {
     'embedded' : embeddednet.EmbeddedNet20
 }
 
-def load(model_name, model_file=None, data_parallel=False):
-    net = models[model_name]()
+def load(model_name, num_classes, model_file=None, data_parallel=False):
+    net = models[model_name](num_classes)
     if data_parallel: # the model is saved in data paralle mode
         net = torch.nn.DataParallel(net)
 
