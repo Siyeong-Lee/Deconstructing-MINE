@@ -1,1 +1,1 @@
-# ICML20-UnboxingNN
+# Deconstructing MINE
