@@ -32,7 +32,7 @@ class MI_MALoss(nn.Module):
         if self.prev_et:
             et = self.weight*et + (1-self.weight) * self.prev_et
         
-        self.prev_et = et
+        self.prev_et = et.item()
         loss = -(t - et)
 
         return loss, mi

@@ -188,7 +188,7 @@ if __name__ == '__main__':
     for iteration in range(start_iteration, args.iteration + 1):
         loss, est_mi = train(loader, net, criterion, optimizer, use_cuda)
 
-        status = 'e: %d loss: %.5f estimiated_mi: %.5f (%.5f)\n' % (iteration, loss, est_mi, true_mi)
+        status = 'e: %d loss: %.5f estimiated_mi: %.5f (%.5f)' % (iteration, loss, est_mi, true_mi)
         print(status)
         f.write(status)
 
