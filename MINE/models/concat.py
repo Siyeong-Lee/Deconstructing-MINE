@@ -6,7 +6,7 @@ class ConcatNet(nn.Module):
         super(ConcatNet, self).__init__()
         self.network = nn.Sequential(
             nn.Linear(2*input_state, hidden_state), nn.ReLU(),
-            nn.Linear(hidden_state, 1, bias=False)
+            nn.Linear(hidden_state, 1, bias=False),
             )
 
     def forward(self, x, y):

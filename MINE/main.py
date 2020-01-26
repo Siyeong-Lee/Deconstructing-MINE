@@ -16,6 +16,7 @@ import torch.nn.parallel
 import model_loader
 import dataloader
 import losses
+from lookahead import Lookahead
 
 def init_params(net):
     for m in net.modules():
@@ -32,7 +33,7 @@ def init_params(net):
                 init.constant_(m.bias, 0)
 
 # Training
-def train(loader, net, criterion, optimizer, use_cuda=True):
+def train(loader, net, criterion, optimizer, prev_et, use_cuda=True):
     net.train()
     loss = 0
     joint_samples, marginal_samples = loader.next()
@@ -46,16 +47,16 @@ def train(loader, net, criterion, optimizer, use_cuda=True):
     joint_value = net(joint_samples[0], joint_samples[1])
     marginal_value = net(marginal_samples[0], marginal_samples[1])
         
-    loss, mi = criterion(joint_value, marginal_value)
-    loss.backward()
-    optimizer.step()
+    loss, mi, t, et  = criterion(joint_value, marginal_value)
     
-    return loss, mi
+    if math.abs(et) < math.abs(prev_et):  
+        loss.backward()
+        optimizer.step()
+    
+    return loss, mi, t, et
 
 def name_save_folder(args):
     save_folder = args.model + '_' + str(args.optimizer) + '_lr=' + str(args.lr)
-    if args.lr_decay != 0.1:
-        save_folder += '_lr_decay=' + str(args.lr_decay)
     save_folder += '_cls=' + str(args.num_classes)
     save_folder += '_str=' + str(args.strategy)
     save_folder += '_opt=' + str(args.optimizer)
@@ -77,13 +78,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='PyTorch MINE Training')
     parser.add_argument('--num_classes', default=4, type=int)
     parser.add_argument('--batch_size', default=16, type=int)
-    parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
-    parser.add_argument('--lr_decay', default=0.1, type=float, help='learning rate decay rate')
+    parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
     parser.add_argument('--strategy', default='basic', help='strategy: basic | lookahead | SWA')
     parser.add_argument('--optimizer', default='sgd', help='optimizer: sgd | adam ')
-    parser.add_argument('--weight_decay', default=0.0005, type=float)
+    parser.add_argument('--weight_decay', default=0.00, type=float)
     parser.add_argument('--momentum', default=0.9, type=float)
-    parser.add_argument('--iteration', default=1000, type=int, metavar='N', help='number of total iteration to run')
+    parser.add_argument('--iteration', default=10000, type=int, metavar='N', help='number of total iteration to run')
     parser.add_argument('--logs', default='logs',help='path to save logs')
     parser.add_argument('--ngpu', type=int, default=1, help='number of GPUs to use')
     parser.add_argument('--rand_seed', default=0, type=int, help='seed for random num generator')
@@ -92,7 +92,7 @@ if __name__ == '__main__':
 
     # model parameters
     parser.add_argument('--model', '-m', default='concat')
-    parser.add_argument('--loss_name', '-l', default='MINE_stable', help='loss functions: basic | MINE_stable | MINE_SH')
+    parser.add_argument('--loss_name', '-l', default='basic', help='loss functions: basic | MINE_stable')
 
     # data parameters
     parser.add_argument('--idx', default=0, type=int, help='the index for the repeated experiment')
@@ -100,7 +100,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     print('\nLearning Rate: %f' % args.lr)
-    print('\nDecay Rate: %f' % args.lr_decay)
 
     use_cuda = torch.cuda.is_available()
     if use_cuda:
@@ -155,8 +154,6 @@ if __name__ == '__main__':
         criterion = losses.MI_BasicLoss(args.batch_size)
     elif args.loss_name == 'MINE_stable':
         criterion = losses.MI_MALoss(args.batch_size) 
-    elif args.loss_name == 'MINE_SH':
-        criterion = losses.MI_SHLoss(args.batch_size)
     else:
         assert NotImplementedError
 
@@ -174,7 +171,8 @@ if __name__ == '__main__':
     # Strategy
     if args.strategy == 'basic':
         optimizer = optimizer        
-    elif args.strategy == 'look_ahead':
+    elif args.strategy == 'lookahead':
+        print('[strategy]: lookahead')
         la_steps = 4
         la_alpha = 0.01
         optimizer = Lookahead(optimizer, la_steps=la_steps, la_alpha=la_alpha)
@@ -185,10 +183,13 @@ if __name__ == '__main__':
         checkpoint_opt = torch.load(args.resume_opt)
         optimizer.load_state_dict(checkpoint_opt['optimizer'])
 
+    prev_et = np.inf
     for iteration in range(start_iteration, args.iteration + 1):
-        loss, est_mi = train(loader, net, criterion, optimizer, use_cuda)
+        loss, est_mi, t, et = train(loader, net, criterion, optimizer, 
+            prev_et, use_cuda)
 
-        status = 'e: %d loss: %.5f estimiated_mi: %.5f (%.5f)' % (iteration, loss, est_mi, true_mi)
+        prev_et = et
+        status = 'e: %d loss: %.5f estimiated_mi: %.5f (%.5f)[%.5f, %.5f]' % (iteration, loss, est_mi, true_mi, t, et)
         print(status)
         f.write(status)
 
