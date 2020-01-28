@@ -16,7 +16,9 @@ import torch.nn.parallel
 import model_loader
 import dataloader
 import losses
+
 from lookahead import Lookahead
+from torchcontrib.optim import SWA
 
 def init_params(net):
     for m in net.modules():
@@ -49,7 +51,7 @@ def train(loader, net, criterion, optimizer, prev_et, use_cuda=True):
         
     loss, mi, t, et  = criterion(joint_value, marginal_value)
     
-    if math.abs(et) < math.abs(prev_et):  
+    if abs(et) < abs(prev_et):  
         loss.backward()
         optimizer.step()
     
@@ -78,12 +80,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='PyTorch MINE Training')
     parser.add_argument('--num_classes', default=4, type=int)
     parser.add_argument('--batch_size', default=16, type=int)
-    parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
-    parser.add_argument('--strategy', default='basic', help='strategy: basic | lookahead | SWA')
+    parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
+    parser.add_argument('--strategy', default='swa', help='strategy: basic | lookahead | swa')
     parser.add_argument('--optimizer', default='sgd', help='optimizer: sgd | adam ')
     parser.add_argument('--weight_decay', default=0.00, type=float)
     parser.add_argument('--momentum', default=0.9, type=float)
-    parser.add_argument('--iteration', default=10000, type=int, metavar='N', help='number of total iteration to run')
+    parser.add_argument('--iteration', default=50000, type=int, metavar='N', help='number of total iteration to run')
     parser.add_argument('--logs', default='logs',help='path to save logs')
     parser.add_argument('--ngpu', type=int, default=1, help='number of GPUs to use')
     parser.add_argument('--rand_seed', default=0, type=int, help='seed for random num generator')
@@ -173,9 +175,12 @@ if __name__ == '__main__':
         optimizer = optimizer        
     elif args.strategy == 'lookahead':
         print('[strategy]: lookahead')
-        la_steps = 4
-        la_alpha = 0.01
+        
+        la_steps = 16
+        la_alpha = 0.001
         optimizer = Lookahead(optimizer, la_steps=la_steps, la_alpha=la_alpha)
+    elif args.strategy == 'swa':
+        optimizer = SWA(optimizer, swa_start=1, swa_freq=256, swa_lr=0.001)
     else:
         assert NotImplementedError
 
