@@ -13,8 +13,8 @@ class EmbeddedNet(nn.Module):
         self.network = nn.Linear(hidden_state, 1, bias=False)
 
     def forward(self, x, y):
-        x = subnet1(x)
-        y = subnet2(y)
+        x = self.subnet1(x)
+        y = self.subnet2(y)
         xy = torch.cat((x, y), dim=1)
         return self.network(xy)
 
