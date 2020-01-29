@@ -3,7 +3,7 @@ import torch.nn as nn
 
 class EmbeddedNet(nn.Module):
     def __init__(self, input_state, hidden_state):
-        super(ConcatNet, self).__init__()
+        super(EmbeddedNet, self).__init__()
         self.subnet1 = nn.Sequential(
             nn.Linear(input_state, hidden_state//2), nn.ReLU()
             )
