@@ -49,7 +49,8 @@ def train(loader, net, criterion, optimizer, prev_et, use_cuda=True):
     joint_value = net(joint_samples[0], joint_samples[1])
     marginal_value = net(marginal_samples[0], marginal_samples[1])
         
-    loss, mi, t, et  = criterion(joint_value, marginal_value)
+    loss, mi  = criterion(joint_value, marginal_value)
+    mi = criterion.mutual_information
     
     if abs(et) < abs(prev_et):  
         loss.backward()
