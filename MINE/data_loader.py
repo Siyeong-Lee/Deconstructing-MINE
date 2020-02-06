@@ -49,8 +49,5 @@ class random_number(Dataset):
         return (xj_sample, yj_sample), (xm_sample, ym_sample)
 
 def get_data_loaders(batch_size, num_classes, length, isOnehot=True, workers=1):
-    dataset = random_number(num_classes, batch_size*length, isOnehot)
-    dataloader = DataLoader(dataset, 
-        batch_size=batch_size, 
-        num_workers=workers)
-    return iter(dataloader)
+    # sample 불균일하게 뽑아보는 실험을 위해서 joint marginal 의 배치를 고려해서 설정하는 것이 좋을 것 같음
+    raise NotImplementedError
