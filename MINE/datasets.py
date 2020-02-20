@@ -14,10 +14,10 @@ class RandomGeneratorMixin:
 
 
 class RandomIntegerGenerator(RandomGeneratorMixin):
-    def __init__(self, max_value, embedding='identity'):
+    def __init__(self, max_value, encoding='identity'):
         self.max_value = max_value
 
-        self._embedding_dict = {
+        self._encoding_dict = {
             'one_hot': self._one_hot,
             'square': self._square,
             'cube': self._square,
@@ -25,16 +25,16 @@ class RandomIntegerGenerator(RandomGeneratorMixin):
             'cos': self._cos,
             'identity': self._identity,
         }
-        if embedding not in self._embedding_dict.keys():
-            raise NotImplementedError(f'No such embedding: {embedding}')
-        self.embedding = self._embedding_dict[embedding]
+        if encoding not in self._encoding_dict.keys():
+            raise NotImplementedError(f'No such encoding: {encoding}')
+        self.encoding = self._encoding_dict[encoding]
 
     def sample(self):
         s = np.array((np.random.randint(self.max_value), )).astype(float)
-        return self.embedding(s), s
+        return self.encoding(s), s
 
     def conditional(self, x):
-        return self.embedding(x), x
+        return self.encoding(x), x
 
     def _one_hot(self, x):
         array = np.zeros((self.max_value, ))
@@ -58,10 +58,10 @@ class RandomIntegerGenerator(RandomGeneratorMixin):
 
 
 class IntegerPairDataset(data.dataset.IterableDataset):
-    def __init__(self, number_of_cases, x_embedding='identity', y_embedding='identity', transform=None):
+    def __init__(self, number_of_cases, x_encoding='identity', y_encoding='identity', transform=None):
         super().__init__()
-        self.x = RandomIntegerGenerator(max_value=number_of_cases, embedding=x_embedding)
-        self.y = RandomIntegerGenerator(max_value=number_of_cases, embedding=y_embedding)
+        self.x = RandomIntegerGenerator(max_value=number_of_cases, encoding=x_encoding)
+        self.y = RandomIntegerGenerator(max_value=number_of_cases, encoding=y_encoding)
         self.transform = transform
 
     def __iter__(self):
