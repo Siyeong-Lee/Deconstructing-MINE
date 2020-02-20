@@ -1,3 +1,5 @@
+# Source from https://github.com/michaelrzhang/lookahead
+
 from collections import defaultdict
 
 import torch
