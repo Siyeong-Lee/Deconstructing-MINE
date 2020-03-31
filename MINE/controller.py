@@ -42,11 +42,13 @@ class MINEController:
             self.loss(joint_case, marginal_case).backward()
             self.optimizer.step()
 
-        self.history = self.history.append(pd.DataFrame({
-            'joint_value': joint_case.detach().cpu().numpy().flatten(),
-            'marginal_value': marginal_case.detach().cpu().numpy().flatten(),
-            'is_joint_case': data['is_joint_case'].detach().cpu().numpy().flatten(),
-        }), ignore_index=True)
+        batch_history = data
+        batch_history['joint_value'] = joint_case
+        batch_history['marginal_value'] = marginal_case
+        batch_history = {k: v.detach().cpu().numpy().flatten() for k, v in batch_history.items()}
+        batch_history = {k: v for k, v in batch_history.items() if v.shape == batch_history['joint_value'].shape}
+        
+        self.history = self.history.append(pd.DataFrame(batch_history), ignore_index=True)
 
     def estimate(self, number_of_samples):
         joint = np.mean(self.history['joint_value'][-number_of_samples:])
