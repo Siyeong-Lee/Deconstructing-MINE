@@ -10,8 +10,9 @@ class MINEController:
         self.loss = loss
         self.optimizer = optimizer
 
-        self.history = pd.DataFrame(columns=('joint_value', 'marginal_value', 'is_joint_case'))
+        self.history = pd.DataFrame()
         self.device = torch.device('cpu')
+        self.is_train = True
 
     def to(self, device):
         self.network.to(device)
@@ -22,9 +23,11 @@ class MINEController:
 
     def train(self):
         self.network.train()
+        self.is_train = True
 
     def freeze(self):
         self.network.eval()
+        self.is_train = False
 
     def step(self):
         data = next(self.data_loader)
@@ -34,9 +37,10 @@ class MINEController:
         joint_case = self.network(data['x_joint_sample'], data['y_joint_sample'])
         marginal_case = self.network(data['x_marginal_sample'], data['y_marginal_sample'])
 
-        self.optimizer.zero_grad()
-        self.loss(joint_case, marginal_case).backward()
-        self.optimizer.step()
+        if self.is_train:
+            self.optimizer.zero_grad()
+            self.loss(joint_case, marginal_case).backward()
+            self.optimizer.step()
 
         self.history = self.history.append(pd.DataFrame({
             'joint_value': joint_case.detach().cpu().numpy().flatten(),
