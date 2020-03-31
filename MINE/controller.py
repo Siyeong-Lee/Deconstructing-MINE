@@ -54,3 +54,18 @@ class MINEController:
         joint = np.mean(self.history['joint_value'][-number_of_samples:])
         marginal = np.log(np.mean(np.exp(self.history['marginal_value'][-number_of_samples:])))
         return joint - marginal
+    
+    def save(self, path):
+        torch.save({
+            'network': self.network.state_dict(),
+            'optimizer': self.optimizer.state_dict(),
+            'loss': self.loss,
+            'history': self.history,
+        }, path)
+
+    def load(self, path):
+        ckpt = torch.load(path)
+        self.network.load_state_dict(ckpt['network'])
+        self.optimizer.load_state_dict(ckpt['optimizer'])
+        self.loss = ckpt['loss']
+        self.history = ckpt['history']
