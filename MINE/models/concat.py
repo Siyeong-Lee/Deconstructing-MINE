@@ -4,7 +4,7 @@ import torch.nn as nn
 
 class ConcatNet(nn.Module):
     def __init__(self, input_state, hidden_state):
-        super(ConcatNet, self).__init__()
+        super().__init__()
         self.network = nn.Sequential(
             nn.Linear(2*input_state, hidden_state),
             nn.ReLU(),

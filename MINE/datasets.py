@@ -90,6 +90,36 @@ class IntegerPairDataset(data.dataset.IterableDataset):
             return sample
 
 
+class CorrelatedGaussianDataset(data.dataset.IterableDataset):
+    def __init__(self, var, rho, transform=None):
+        super().__init__()
+        self.generator = lambda: np.random.multivariate_normal(
+            mean=(0, 0), cov=((var, rho*var), (rho*var, var))
+        )
+        self.transform = transform
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        while True:
+            x_joint_sample, y_joint_sample = self.generator()
+            x_marginal_sample, _ = self.generator()
+            _, y_marginal_sample = self.generator()
+
+            sample = {
+                'x_joint_sample': np.array([x_joint_sample]),
+                'y_joint_sample': np.array([y_joint_sample]),
+                'x_marginal_sample': np.array([x_marginal_sample]),
+                'y_marginal_sample': np.array([y_marginal_sample]),
+            }
+
+            if self.transform:
+                sample = self.transform(sample)
+
+            return sample
+
+
 class TransformToTensor:
     def __call__(self, sample):
         for key in sample.keys():
