@@ -93,32 +93,33 @@ class ConvFeatureController:
         self.device = device
 
     def __iter__(self):
-        joint_image = iter(self.joint_imageloader)
-        marginal_x_image = iter(self.marginal_x_imageloader)
-        marginal_y_image = iter(self.marginal_y_imageloader)
+        while True:
+            joint_image = iter(self.joint_imageloader)
+            marginal_x_image = iter(self.marginal_x_imageloader)
+            marginal_y_image = iter(self.marginal_y_imageloader)
 
-        for _ in range(self.iteration):
-            joint_sample, joint_label = next(joint_image)
-            x_marginal_sample, x_marginal_label = next(marginal_x_image)
-            y_marginal_sample, y_marginal_label = next(marginal_y_image)
+            for _ in range(self.iteration):
+                joint_sample, joint_label = next(joint_image)
+                x_marginal_sample, x_marginal_label = next(marginal_x_image)
+                y_marginal_sample, y_marginal_label = next(marginal_y_image)
 
-            joint_sample = joint_sample.to(self.device)
-            x_marginal_sample = x_marginal_sample.to(self.device)
-            y_marginal_sample = y_marginal_sample.to(self.device)
+                joint_sample = joint_sample.to(self.device)
+                x_marginal_sample = x_marginal_sample.to(self.device)
+                y_marginal_sample = y_marginal_sample.to(self.device)
 
-            x_joint_sample = self.x_encoding(joint_sample)
-            y_joint_sample = self.y_encoding(joint_sample)
-            x_marginal_sample = self.x_encoding(x_marginal_sample)
-            y_marginal_sample = self.y_encoding(y_marginal_sample)
+                x_joint_sample = self.x_encoding(joint_sample)
+                y_joint_sample = self.y_encoding(joint_sample)
+                x_marginal_sample = self.x_encoding(x_marginal_sample)
+                y_marginal_sample = self.y_encoding(y_marginal_sample)
 
-            sample = {
-                'x_joint_sample': x_joint_sample,
-                'y_joint_sample': y_joint_sample,
-                'x_marginal_sample': x_marginal_sample,
-                'y_marginal_sample': y_marginal_sample,
-                'joint_label': joint_label,
-                'x_marginal_label': x_marginal_label,
-                'y_marginal_label': y_marginal_label,
-            }
+                sample = {
+                    'x_joint_sample': x_joint_sample,
+                    'y_joint_sample': y_joint_sample,
+                    'x_marginal_sample': x_marginal_sample,
+                    'y_marginal_sample': y_marginal_sample,
+                    'joint_label': joint_label,
+                    'x_marginal_label': x_marginal_label,
+                    'y_marginal_label': y_marginal_label,
+                }
 
-            yield sample
+                yield sample
