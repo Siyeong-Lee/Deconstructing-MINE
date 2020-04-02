@@ -93,6 +93,12 @@ class ConvConcatNet(nn.Module):
 
     @classmethod
     def resnet18(cls, index_x, index_y, num_classes, concat_hidden_size, cnn_pretrained_weights, head_pretrained_weights):
+        def _weight_init(m):
+            try:
+                m.reset_parameters()
+            except AttributeError:
+                pass
+
         def _split_resnet18(index_):
             model = get_model('resnet18', num_classes, pretrained=False)
             if cnn_pretrained_weights:
@@ -101,7 +107,7 @@ class ConvConcatNet(nn.Module):
             encoder, decoder = split_model(model, targets['resnet18'][index_])
 
             decoder = insert_layer(decoder, nn.Flatten(), len(list(decoder.children()))-1)
-            decoder = insert_layer(decoder, nn.Softmax(dim=1), len(list(decoder.children())))
+            decoder.apply(_weight_init)
 
             return encoder, decoder
 
