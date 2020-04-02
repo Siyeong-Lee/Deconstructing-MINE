@@ -99,7 +99,10 @@ class ConvConcatNet(nn.Module):
                 model.load_state_dict(cnn_pretrained_weights)
 
             encoder, decoder = split_model(model, targets['resnet18'][index_])
+
             decoder = insert_layer(decoder, nn.Flatten(), len(list(decoder.children()))-1)
+            decoder = insert_layer(decoder, nn.Softmax(dim=1), len(list(decoder.children())))
+
             return encoder, decoder
 
         encoder_x, decoder_x = _split_resnet18(index_x)
