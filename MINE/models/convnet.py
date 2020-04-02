@@ -73,13 +73,15 @@ targets = {
 }
 
 class ConvConcatNet(nn.Module):
-    def __init__(self, embedding_x, embedding_y, input_size, hidden_size):
+    def __init__(self, embedding_x, embedding_y, input_size, hidden_size, pretrained_weights):
         super().__init__()
         self.network = nn.Sequential(
             nn.Linear(input_size * 2, hidden_size),
             nn.ReLU(),
             nn.Linear(hidden_size, 1, bias=False),
         )
+        if pretrained_weights:
+            self.network.load_state_dict(pretrained_weights)
         self.embedding_x = embedding_x
         self.embedding_y = embedding_y
 
@@ -90,11 +92,12 @@ class ConvConcatNet(nn.Module):
         return self.network(xy)
 
     @classmethod
-    def resnet18(cls, index_x, index_y, num_classes, concat_hidden_size, pretrained_weights):
+    def resnet18(cls, index_x, index_y, num_classes, concat_hidden_size, cnn_pretrained_weights, head_pretrained_weights):
         def _split_resnet18(index_):
             model = get_model('resnet18', num_classes, pretrained=False)
-            if pretrained_weights is not None:
-                model.load_state_dict(pretrained_weights)
+            if cnn_pretrained_weights:
+                model.load_state_dict(cnn_pretrained_weights)
+
             encoder, decoder = split_model(model, targets['resnet18'][index_])
             decoder = insert_layer(decoder, nn.Flatten(), len(list(decoder.children()))-1)
             return encoder, decoder
@@ -102,4 +105,4 @@ class ConvConcatNet(nn.Module):
         encoder_x, decoder_x = _split_resnet18(index_x)
         encoder_y, decoder_y = _split_resnet18(index_y)
 
-        return cls(decoder_x, decoder_y, num_classes, concat_hidden_size), encoder_x, encoder_y
+        return cls(decoder_x, decoder_y, num_classes, concat_hidden_size, head_pretrained_weights), encoder_x, encoder_y
