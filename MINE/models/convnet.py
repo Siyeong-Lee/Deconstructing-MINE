@@ -28,7 +28,13 @@ def split_model(model, finder):
 
 def insert_layer(model, layer, index):
     children = list(model.children())
-    children = children[:index] + [layer] + children[index:]
+    children.insert(index, layer)
+    return nn.Sequential(*children)
+
+
+def delete_layer(model, index):
+    children = list(model.children())
+    children.pop(index)
     return nn.Sequential(*children)
 
 
@@ -72,6 +78,27 @@ targets = {
     ]
 }
 
+
+class L2Normalize(nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.args = args
+        self.kwargs = kwargs
+
+    def forward(self, x):
+        return nn.functional.normalize(x, *self.args, **self.kwargs)
+
+
+class OneHot(nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.args = args
+        self.kwargs = kwargs
+
+    def forward(self, x):
+        return nn.functional.one_hot(x, *self.args, **self.kwargs).float()
+
+
 class ConvConcatNet(nn.Module):
     def __init__(self, embedding_x, embedding_y, input_size, hidden_size, pretrained_weights):
         super().__init__()
@@ -93,20 +120,44 @@ class ConvConcatNet(nn.Module):
 
     @classmethod
     def resnet18(cls, index_x, index_y, num_classes, concat_hidden_size, cnn_pretrained_weights, head_pretrained_weights):
+        is_featurewise_comparison = (index_x not in ('output', 'label') and index_y not in ('output', 'label'))
+        concat_input_size = 512 if is_featurewise_comparison else num_classes
+
         def _weight_init(m):
             try:
                 m.reset_parameters()
             except AttributeError:
                 pass
 
+        def _modify_last_layer(m):
+            if is_featurewise_comparison:
+                m = delete_layer(m, -1)
+                m = insert_layer(
+                    m, nn.Sequential(nn.Flatten(), L2Normalize(p=2, dim=1)), len(list(m.children()))
+                )
+            else:
+                m = insert_layer(m, nn.Flatten(), -1)
+                m = insert_layer(m, nn.Softmax(dim=1), len(list(m.children())))
+
+            return m
+
         def _split_resnet18(index_):
             model = get_model('resnet18', num_classes, pretrained=False)
             if cnn_pretrained_weights:
                 model.load_state_dict(cnn_pretrained_weights)
 
-            encoder, decoder = split_model(model, targets['resnet18'][index_])
+            if index_ == 'input':
+                model = _modify_last_layer(model)
+                encoder, decoder = nn.Sequential(nn.Identity()), model
+            elif index_ == 'output':
+                model = _modify_last_layer(model)
+                encoder, decoder = model, nn.Sequential(nn.Identity())
+            elif index_ == 'label':
+                encoder, decoder = nn.Sequential(OneHot(num_classes=num_classes)), nn.Sequential(nn.Identity())
+            else:
+                encoder, decoder = split_model(model, targets['resnet18'][index_])
+                decoder = _modify_last_layer(decoder)
 
-            decoder = insert_layer(decoder, nn.Flatten(), len(list(decoder.children()))-1)
             decoder.apply(_weight_init)
 
             return encoder, decoder
@@ -114,4 +165,4 @@ class ConvConcatNet(nn.Module):
         encoder_x, decoder_x = _split_resnet18(index_x)
         encoder_y, decoder_y = _split_resnet18(index_y)
 
-        return cls(decoder_x, decoder_y, num_classes, concat_hidden_size, head_pretrained_weights), encoder_x, encoder_y
+        return cls(decoder_x, decoder_y, concat_input_size, concat_hidden_size, head_pretrained_weights), encoder_x, encoder_y
