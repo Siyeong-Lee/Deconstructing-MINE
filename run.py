@@ -20,7 +20,7 @@ parser.add_argument('--model', type=str, choices=('resnet18', ))
 parser.add_argument('--compare_to', type=str, choices=('input', 'label', ))
 parser.add_argument('--target_index', type=int)
 parser.add_argument('--iterations', type=int, default=50000)
-parser.add_argument('--batch_size', type=int, default=1000)
+parser.add_argument('--batch_size', type=int, default=10)
 parser.add_argument('--concat_hidden_size', type=int, default=1024)
 
 args = parser.parse_args()
@@ -70,7 +70,7 @@ with tqdm.tqdm(range(args.iterations)) as t:
     for i in t:
         agent.step()
         if i % 10 == 9:
-            description = 'MI: %.3f' % agent.estimate(20000)
+            description = 'MI: %.3f' % agent.estimate(200)
             t.set_description(description)
             t.refresh()
 
