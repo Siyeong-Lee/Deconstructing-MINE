@@ -14,7 +14,7 @@ from MINE import controller, losses, models
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--gpu_id', type=int, default=0)
+parser.add_argument('--gpu_id', type=int)
 parser.add_argument('--pretrained_model_path', type=str)
 parser.add_argument('--model', type=str, choices=('resnet18', ))
 parser.add_argument('--compare_to', type=str, choices=('input', 'label', ))
@@ -42,7 +42,7 @@ if args.model == 'resnet18':
         index_y=args.compare_to,
         num_classes=10,
         concat_hidden_size=args.concat_hidden_size,
-        cnn_pretrained_weights=torch.load(args.pretrained_model_path),
+        cnn_pretrained_weights=torch.load(args.pretrained_model_path, map_location=torch.device('cpu')),
         head_pretrained_weights=None
     )
 else:
