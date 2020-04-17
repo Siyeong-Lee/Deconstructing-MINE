@@ -15,7 +15,7 @@ from MINE import controller, losses, models
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--gpu_id', type=int)
-parser.add_argument('--pretrained_model_path', type=str)
+parser.add_argument('--pretrained_model_path', default=None)
 parser.add_argument('--model', type=str, choices=('resnet18', ))
 parser.add_argument('--compare_to', type=str, choices=('input', 'label', ))
 parser.add_argument('--target_index', type=int)
