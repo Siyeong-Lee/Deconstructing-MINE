@@ -19,8 +19,8 @@ parser.add_argument('--pretrained_model_path', type=str)
 parser.add_argument('--model', type=str, choices=('resnet18', ))
 parser.add_argument('--compare_to', type=str, choices=('input', 'label', ))
 parser.add_argument('--target_index', type=int)
-parser.add_argument('--iterations', type=int, default=50000)
-parser.add_argument('--batch_size', type=int, default=10)
+parser.add_argument('--iterations', type=int, default=500000)
+parser.add_argument('--batch_size', type=int, default=100)
 parser.add_argument('--concat_hidden_size', type=int, default=1024)
 
 args = parser.parse_args()
@@ -66,18 +66,23 @@ agent = controller.MINEController(
 data_loader.to(args.gpu_id)
 agent.to(args.gpu_id)
 
+folder_name = pathlib.Path(
+    f'history/{args.model}/{args.pretrained_model_path.split("/")[-1]}/{args.compare_to}/{args.target_index}'
+)
+folder_name.mkdir(parents=True, exist_ok=True)
+
 with tqdm.tqdm(range(args.iterations)) as t:
     for i in t:
         agent.step()
-        if i % 10 == 9:
+        if i % 100 == 99:
             description = 'MI: %.3f' % agent.estimate(200)
             t.set_description(description)
             t.refresh()
 
-            folder_name = pathlib.Path(f'history/{args.model}/{args.pretrained_model_path.split("/")[-1]}/{args.compare_to}/{args.target_index}')
-            folder_name.mkdir(parents=True, exist_ok=True)
             agent.history.to_pickle(str(folder_name / ('%05d.pkl' % i)))
             agent.history = pd.DataFrame()
 
             if 'nan' in description or 'inf' in description:
                 break
+
+agent.save(str(folder_name / ('agent.pkl')))
