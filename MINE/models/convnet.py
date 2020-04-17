@@ -4,6 +4,8 @@ import torchvision.models
 import pretrainedmodels as ptn
 from efficientnet_pytorch import EfficientNet
 
+from .resnet import resnet18
+
 
 def get_model(key, num_classes, pretrained):
     if pretrained:
@@ -119,7 +121,7 @@ class ConvConcatNet(nn.Module):
         return self.network(xy)
 
     @classmethod
-    def resnet18(cls, index_x, index_y, num_classes, concat_hidden_size, cnn_pretrained_weights, head_pretrained_weights):
+    def resnet18(cls, index_x, index_y, num_classes, residual_connection, concat_hidden_size, cnn_pretrained_weights, head_pretrained_weights):
         is_featurewise_comparison = (index_x not in ('output', 'label') and index_y not in ('output', 'label'))
         concat_input_size = 512 if is_featurewise_comparison else num_classes
 
@@ -142,7 +144,7 @@ class ConvConcatNet(nn.Module):
             return m
 
         def _split_resnet18(index_):
-            model = get_model('resnet18', num_classes, pretrained=False)
+            model = resnet18(num_classes=num_classes, residual_connection=residual_connection)
             if cnn_pretrained_weights:
                 model.load_state_dict(cnn_pretrained_weights)
 

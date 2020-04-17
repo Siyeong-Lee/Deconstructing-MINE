@@ -15,8 +15,9 @@ from MINE import controller, losses, models
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--gpu_id', type=int)
-parser.add_argument('--pretrained_model_path', default=None)
+parser.add_argument('--pretrained_model_path')
 parser.add_argument('--model', type=str, choices=('resnet18', ))
+parser.add_argument('--residual_connection', choices=(True, False))
 parser.add_argument('--compare_to', type=str, choices=('input', 'label', ))
 parser.add_argument('--target_index', type=int)
 parser.add_argument('--iterations', type=int, default=500000)
@@ -46,6 +47,7 @@ if args.model == 'resnet18':
         index_x=args.target_index,
         index_y=args.compare_to,
         num_classes=10,
+        residual_connection=args.residual_connection,
         concat_hidden_size=args.concat_hidden_size,
         cnn_pretrained_weights=cnn_pretrained_weights,
         head_pretrained_weights=None
@@ -72,7 +74,7 @@ data_loader.to(args.gpu_id)
 agent.to(args.gpu_id)
 
 folder_name = pathlib.Path(
-    f'history/{args.model}/{args.pretrained_model_path.split("/")[-1]}/{args.compare_to}/{args.target_index}'
+    f'history/{args.model}/{args.residual_connection}/{args.pretrained_model_path.split("/")[-1]}/{args.compare_to}/{args.target_index}'
 )
 folder_name.mkdir(parents=True, exist_ok=True)
 
