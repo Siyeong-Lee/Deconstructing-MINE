@@ -23,7 +23,7 @@ parser.add_argument('--target_index', type=int)
 parser.add_argument('--iterations', type=int, default=500000)
 parser.add_argument('--batch_size', type=int, default=100)
 parser.add_argument('--concat_hidden_size', type=int, default=1024)
-parser.setdefaults(residual_connection=True)
+parser.set_defaults(residual_connection=True)
 
 args = parser.parse_args()
 print(args)
