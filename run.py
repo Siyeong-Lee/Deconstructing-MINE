@@ -36,13 +36,18 @@ cifar10 = torchvision.datasets.CIFAR10(
     ])
 )
 
+if args.pretrained_model_path:
+    cnn_pretrained_weights = torch.load(args.pretrained_model_path, map_location=torch.device('cpu'))
+else:
+    cnn_pretrained_weights = None
+
 if args.model == 'resnet18':
     network, x_encoding, y_encoding = models.ConvConcatNet.resnet18(
         index_x=args.target_index,
         index_y=args.compare_to,
         num_classes=10,
         concat_hidden_size=args.concat_hidden_size,
-        cnn_pretrained_weights=torch.load(args.pretrained_model_path, map_location=torch.device('cpu')),
+        cnn_pretrained_weights=cnn_pretrained_weights,
         head_pretrained_weights=None
     )
 else:
