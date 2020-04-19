@@ -82,8 +82,30 @@ folder_name = pathlib.Path(
 )
 folder_name.mkdir(parents=True, exist_ok=True)
 
+def _get_pretrained_agent():
+    def _get_digit(path):
+        name = ''.join(c for c in path.name if c.isdigit())
+        if name:
+            return int(name)
+        else:
+            return None
+    files = [x for x in folder_name.glob('*.pth') if _get_digit(x) is not None]
+    pretrained_agents = sorted(files, key=_get_digit)
+    if pretrained_agents:
+        return pretrained_agents[-1], _get_digit(pretrained_agents[-1])
+    else:
+        return None, -1
+
+pretrained_agent_path, pretrained_epochs = _get_pretrained_agent()
+if pretrained_agent_path:
+    agent.load(str(pretrained_agent_path))
+    print('Loading pretrained agent', pretrained_agent_path)
+
 with tqdm.tqdm(range(args.iterations)) as t:
     for i in t:
+        if i < pretrained_epochs:
+            continue
+
         agent.step()
         if i % 100 == 99:
             description = 'MI: %.3f' % agent.estimate(200)
@@ -96,4 +118,5 @@ with tqdm.tqdm(range(args.iterations)) as t:
             if 'nan' in description or 'inf' in description:
                 break
 
-agent.save(str(folder_name / ('agent.pth')))
+        if i % 100000 == 99999:
+            agent.save(str(folder_name / ('agent_%08d.pth' % i)))
