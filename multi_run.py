@@ -1,9 +1,7 @@
-import pathlib
-
 gpu_ids = (1, 2, 3, 4, 5, 6, 7, )
 process_per_gpus = 6
 
-pretrained_model_paths = sorted(list(pathlib.Path('./pretrained_weights').glob('*.pth')), reverse=True)
+pretrained_model_paths = ('%02d.pth' % i for i in range(20))
 comparisons = ('input', 'label', )
 residual_choice = ('residual_connection', 'no_residual_connection', )
 dataset_choice = ('dataset_train', 'dataset_test', )
@@ -16,7 +14,7 @@ for pretrained_model_path in pretrained_model_paths:
             for residual in residual_choice:
                 for dataset in dataset_choice:
                     experiments.append({
-                        'pretrained_model_path': pretrained_model_path,
+                        'pretrained_model_path': f"./pretrained_{'residual' if residual == 'residual_connection' else 'no_residual'}/{pretrained_model_path}",
                         'compare_to': compare_to,
                         'target_index': target_index,
                         'model': 'resnet18',
