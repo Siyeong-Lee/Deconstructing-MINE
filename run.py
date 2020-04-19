@@ -17,10 +17,13 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--gpu_id', type=int)
 parser.add_argument('--pretrained_model_path')
 parser.add_argument('--model', type=str, choices=('resnet18', ))
+parser.add_argument('--residual_connection', action='store_true')
 parser.add_argument('--no_residual_connection', dest='residual_connection', action='store_false')
+parser.add_argument('--dataset_train', action='store_true')
+parser.add_argument('--dataset_test', dest='dataset_train', action='store_false')
 parser.add_argument('--compare_to', type=str, choices=('input', 'label', ))
 parser.add_argument('--target_index', type=int)
-parser.add_argument('--iterations', type=int, default=500000)
+parser.add_argument('--iterations', type=int, default=1000000)
 parser.add_argument('--batch_size', type=int, default=100)
 parser.add_argument('--concat_hidden_size', type=int, default=1024)
 parser.set_defaults(residual_connection=True)
@@ -30,7 +33,7 @@ print(args)
 
 cifar10 = torchvision.datasets.CIFAR10(
     root='./data',
-    train=True,
+    train=args.dataset_train,
     download=True,
     transform=torchvision.transforms.Compose([
         torchvision.transforms.ToTensor(),
@@ -75,7 +78,7 @@ data_loader.to(args.gpu_id)
 agent.to(args.gpu_id)
 
 folder_name = pathlib.Path(
-    f'history/{args.model}/{args.residual_connection}/{args.pretrained_model_path.split("/")[-1]}/{args.compare_to}/{args.target_index}'
+    f'history/{args.model}/{"residual" if args.residual_connection else "no_residual"}/{"train" if args.dataset_train else "test"}/{args.pretrained_model_path.split("/")[-1]}/{args.compare_to}/{args.target_index}'
 )
 folder_name.mkdir(parents=True, exist_ok=True)
 
@@ -87,10 +90,10 @@ with tqdm.tqdm(range(args.iterations)) as t:
             t.set_description(description)
             t.refresh()
 
-            agent.history.to_pickle(str(folder_name / ('%05d.pkl' % i)))
+            agent.history.to_pickle(str(folder_name / ('%08d.pkl' % i)))
             agent.history = pd.DataFrame()
 
             if 'nan' in description or 'inf' in description:
                 break
 
-agent.save(str(folder_name / ('agent.pkl')))
+agent.save(str(folder_name / ('agent.pth')))

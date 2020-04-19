@@ -1,22 +1,28 @@
 import pathlib
 
-gpu_ids = [1, 2, 3, 4, 5, 6, 7, ]
-process_per_gpus = 2
+gpu_ids = (1, 2, 3, 4, 5, 6, 7, )
+process_per_gpus = 6
 
 pretrained_model_paths = sorted(list(pathlib.Path('./pretrained_weights').glob('*.pth')), reverse=True)
-comparisons = ('input', 'label')
-target_indices = [0, 1, 2, 3, 4, ]
+comparisons = ('input', 'label', )
+residual_choice = ('residual_connection', 'no_residual_connection', )
+dataset_choice = ('dataset_train', 'dataset_test', )
+target_indices = (0, 1, 2, 3, 4, )
 
 experiments = []
 for pretrained_model_path in pretrained_model_paths:
     for compare_to in comparisons:
         for target_index in target_indices:
-            experiments.append({
-                'pretrained_model_path': pretrained_model_path,
-                'compare_to': compare_to,
-                'target_index': target_index,
-                'model': 'resnet18',
-            })
+            for residual in residual_choice:
+                for dataset in dataset_choice:
+                    experiments.append({
+                        'pretrained_model_path': pretrained_model_path,
+                        'compare_to': compare_to,
+                        'target_index': target_index,
+                        'model': 'resnet18',
+                        residual: '',
+                        dataset: '',
+                    })
 
 experiments_per_queue = [
     {'commands': [], 'gpu_id': gpu_id, 'process_id': process_id, 'compiled_command': ''}
