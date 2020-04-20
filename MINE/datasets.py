@@ -91,27 +91,34 @@ class IntegerPairDataset(data.dataset.IterableDataset):
 
 
 class CorrelatedGaussianDataset(data.dataset.IterableDataset):
-    def __init__(self, var, rho, transform=None):
+    def __init__(self, rho, dim, transform=None):
         super().__init__()
         self.generator = lambda: np.random.multivariate_normal(
-            mean=(0, 0), cov=((var, rho*var), (rho*var, var))
+            mean=[0 for _ in range(dim)], cov=[[1 if i == j else 0 for i in range(dim)] for j in range(dim)]
         )
         self.transform = transform
+        self.rho = rho
+        self.dim = dim
+
+    def sample(self):
+        x = self.generator()
+        y = self.rho * self.generator() + np.sqrt(1-self.rho**2) * self.generator()
+        return x, y
 
     def __iter__(self):
         return self
 
     def __next__(self):
         while True:
-            x_joint_sample, y_joint_sample = self.generator()
-            x_marginal_sample, _ = self.generator()
-            _, y_marginal_sample = self.generator()
+            x_joint_sample, y_joint_sample = self.sample()
+            x_marginal_sample, _ = self.sample()
+            _, y_marginal_sample = self.sample()
 
             sample = {
-                'x_joint_sample': np.array([x_joint_sample]),
-                'y_joint_sample': np.array([y_joint_sample]),
-                'x_marginal_sample': np.array([x_marginal_sample]),
-                'y_marginal_sample': np.array([y_marginal_sample]),
+                'x_joint_sample': x_joint_sample,
+                'y_joint_sample': y_joint_sample,
+                'x_marginal_sample': x_marginal_sample,
+                'y_marginal_sample': y_marginal_sample,
             }
 
             if self.transform:
