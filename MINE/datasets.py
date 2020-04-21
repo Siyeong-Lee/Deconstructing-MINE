@@ -102,7 +102,7 @@ class CorrelatedGaussianDataset(data.dataset.IterableDataset):
 
     def sample(self):
         x = self.generator()
-        y = self.rho * self.generator() + np.sqrt(1-self.rho**2) * self.generator()
+        y = self.rho * x + np.sqrt(1-self.rho**2) * self.generator()
         return x, y
 
     def __iter__(self):
