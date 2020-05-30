@@ -55,14 +55,14 @@ def imine_lower_bound(scores):
   joint_term = tf.reduce_mean(tf.linalg.diag_part(scores))
   marg_term = reduce_logmeanexp_nodiag(scores)
   mi = joint_term - marg_term
-  reg = tf.math.scalar_mul(0.01, tf.math.square(marg_term))
+  reg = tf.math.scalar_mul(1.0, tf.math.square(marg_term))
   return joint_term - marg_term - reg + tf.stop_gradient(reg)
 
 def imine_j_lower_bound(scores):
   joint_term = tf.reduce_mean(tf.linalg.diag_part(scores))
   marg_term = reduce_logmeanexp_nodiag(scores)
   mi = joint_term - marg_term
-  reg = tf.math.scalar_mul(0.01, tf.math.square(marg_term))
+  reg = tf.math.scalar_mul(1.0, tf.math.square(marg_term))
   return joint_term - marg_term - reg + tf.stop_gradient(reg + marg_term)
 
 def smile_lower_bound(scores):
@@ -400,8 +400,8 @@ estimators = {
     'TUBA': dict(estimator='tuba', critic=critic_type, baseline='unnormalized'),
     'InfoNCE': dict(estimator='infonce', critic=critic_type, baseline='constant'),
     'JS': dict(estimator='js', critic=critic_type, baseline='constant'),
-#    'TNCE': dict(estimator='infonce', critic='conditional', baseline='constant'),
-    'alpha': dict(estimator='interpolated', critic=critic_type, alpha_logit=0.5, baseline='unnormalized'),
+    'TNCE': dict(estimator='infonce', critic='conditional', baseline='constant'),
+    'alpha': dict(estimator='interpolated', critic=critic_type, alpha_logit=-4.595, baseline='unnormalized'),
 #    'TUBA_opt': dict(estimator='tuba', critic='conditional', baseline='gaussian'),
 }
 

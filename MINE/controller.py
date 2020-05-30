@@ -41,12 +41,14 @@ class MINEController:
             self.optimizer.zero_grad()
             self.loss(joint_case, marginal_case).backward()
             self.optimizer.step()
+        else:
+            self.loss(joint_case, marginal_case)
 
         batch_history = data
         batch_history['joint_value'] = joint_case
         batch_history['marginal_value'] = marginal_case
-        batch_history = {k: v.detach().cpu().numpy().flatten() for k, v in batch_history.items()}
-        batch_history = {k: v for k, v in batch_history.items() if v.shape == batch_history['joint_value'].shape}
+        batch_history = {k: v.detach().cpu().numpy() for k, v in batch_history.items()}
+        batch_history = {k: v.flatten() if v[0].shape == (1, ) else list(v)  for k, v in batch_history.items()}
         
         self.history = self.history.append(pd.DataFrame(batch_history), ignore_index=True)
 
@@ -59,7 +61,6 @@ class MINEController:
         torch.save({
             'network': self.network.state_dict(),
             'optimizer': self.optimizer.state_dict(),
-            'loss': self.loss,
             'history': self.history,
         }, path)
 
@@ -67,7 +68,6 @@ class MINEController:
         ckpt = torch.load(path)
         self.network.load_state_dict(ckpt['network'])
         self.optimizer.load_state_dict(ckpt['optimizer'])
-        self.loss = ckpt['loss']
         self.history = ckpt['history']
 
 
