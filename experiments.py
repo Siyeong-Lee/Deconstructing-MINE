@@ -25,14 +25,6 @@ if gpus:
   except RuntimeError as e:
     print(e)
 
-def reduce_logmeanexp_nodiag_smile(x, axis=None):
-  batch_size = x.shape[0]
-  logsumexp = tf.math.log(tf.reduce_sum(tf.clip_by_value(tf.math.exp(x - tf.linalg.tensor_diag(np.inf * tf.ones(batch_size)), tf.math.exp(-10), tf.math.exp(10)), axis=axis))
-  if axis:
-    num_elem = batch_size - 1.
-  else:
-    num_elem  = batch_size * (batch_size - 1.)
-  return logsumexp - tf.math.log(num_elem)
 
 def reduce_logmeanexp_nodiag(x, axis=None):
   batch_size = x.shape[0]
@@ -77,7 +69,7 @@ def imine_j_lower_bound(scores):
 
 def smile_lower_bound(scores):
   joint_term = tf.reduce_mean(tf.linalg.diag_part(scores))
-  marg_term = reduce_logmeanexp_nodiag_smile
+  marg_term = reduce_logmeanexp_nodiag(tf.clip_by_value(scores, -10, 10))
   mi = joint_term - marg_term
   return mi
 
@@ -484,4 +476,5 @@ if args.loss == 'all':
     plt.legend(loc='best', fontsize=8, framealpha=0.0)
     plt.gcf().tight_layout()
     plt.savefig('test1.png')
+
 

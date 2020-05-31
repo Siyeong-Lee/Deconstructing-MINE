@@ -19,6 +19,6 @@
 ### Figure 6. (a), (b)
 - observing_imine_continuous.ipynb
 ### Figure 7, Appendix 3:
-- Run with `python3 --batch_size 64 --loss {LOSS} --problem gaussian`
+- Run with `python3 experiments.py --batch_size 64 --loss {LOSS} --problem gaussian`
 - `LOSS` can be one of `NWJ`, `iMINE`, `iMINE_j`, `SMILE`, `MINE`, `TUBA`, `InfoNCE`, `JS`, `TNCE`, `alpha`
 - Visualize with comparison_with_sota.ipynb
