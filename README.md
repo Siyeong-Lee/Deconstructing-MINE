@@ -1,6 +1,7 @@
 # Interpretable MINE
 ## Environment
 - Python 3.7.4
+- pip-20.1.1
 - Additional packages can be located in `requirements.txt`
 
 ## How to reproduce experiments & figures:
