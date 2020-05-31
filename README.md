@@ -1,4 +1,4 @@
-# Deconstructing MINE
+# Interpretable MINE
 
 ## How to reproduce experiments & figures:
 ### Figure 1. (a), (b), Figure 2. (a), (b)
