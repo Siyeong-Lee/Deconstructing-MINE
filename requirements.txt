@@ -16,3 +16,4 @@ torchfile==0.1.0
 torchsummary==1.5.1
 torchvision==0.4.0
 tqdm==4.46.0
+matplotlib==3.2.1
