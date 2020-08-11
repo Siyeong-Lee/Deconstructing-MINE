@@ -4,7 +4,7 @@ import pandas as pd
 
 
 class MINEController:
-    def __init__(self, data_loader, loss, network, optimizer):
+    def __init__(self, data_loader, loss, network, optimizer, save_input=True, clip_grad=False):
         self.data_loader = iter(data_loader)
         self.network = network
         self.loss = loss
@@ -13,6 +13,8 @@ class MINEController:
         self.history = pd.DataFrame()
         self.device = torch.device('cpu')
         self.is_train = True
+        self.save_input = save_input
+        self.clip_grad = clip_grad
 
     def to(self, device):
         self.network.to(device)
@@ -40,11 +42,16 @@ class MINEController:
         if self.is_train:
             self.optimizer.zero_grad()
             self.loss(joint_case, marginal_case).backward()
+            if self.clip_grad:
+                torch.nn.utils.clip_grad_norm_(self.network.parameters(), 0.25)
             self.optimizer.step()
         else:
             self.loss(joint_case, marginal_case)
 
-        batch_history = data
+        if self.save_input:
+            batch_history = data
+        else:
+            batch_history = {}
         batch_history['joint_value'] = joint_case
         batch_history['marginal_value'] = marginal_case
         batch_history = {k: v.detach().cpu().numpy() for k, v in batch_history.items()}

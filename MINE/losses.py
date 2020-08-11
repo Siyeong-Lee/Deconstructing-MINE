@@ -32,6 +32,21 @@ class _base_loss:
         self.value = None
 
 
+class smile_loss(_base_loss):
+    def __init__(self, clamp_val=5):
+        self.clamp_val = clamp_val
+        
+    def __call__(self, joint, marginal):
+        t = _mean(joint)
+        et = _log_mean_exp(torch.clamp(marginal, -self.clamp_val, self.clamp_val))
+        mi = t - et
+        loss = -mi
+
+        self.t, self.et, self.mi, self.value = t.item(), et.item(), mi.item(), loss.item()
+
+        return -mi
+
+    
 class mine_loss(_base_loss):
     def __call__(self, joint, marginal):
         t = _mean(joint)
@@ -100,3 +115,28 @@ class tuba_loss(_base_loss):
         self.t, self.et, self.mi, self.value = t.item(), et.item(), mi.item(), loss.item()
         
         return -mi
+
+class classification_loss(_base_loss):
+    def __init__(self):
+        self.eps = 1e-8
+
+    def __call__(self, joint, marginal):        
+        pos_label_pred_p = F.sigmoid(joint)        
+        rn_est_p = (pos_label_pred_p + self.eps / 1-pos_label_pred_p-self.eps) 
+        finp_p = torch.log(torch.abs(rn_est_p))
+
+        pos_label_pred_q = F.sigmoid(marginal)
+        rn_est_q = (pos_label_pred_q + self.eps / 1-pos_label_pred_q-self.eps) 
+        finp_q = torch.log(torch.abs(rn_est_q))
+
+        t = _mean(finp_p) 
+        et = _mean(_exp(finp_q))
+        mi = t - et
+   
+        ones  = torch.ones_like(joint).to(joint.device)
+        zeros = torch.zeros_like(marginal).to(marginal.device)        
+        loss = F.cross_entropy(joint, ones) + F.corss_etropy(marginal, zeros)
+
+        self.t, self.et, self.mi, self.value = t.item(), et.item(), mi.item(), loss.item()
+        
+        return loss

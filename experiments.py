@@ -67,6 +67,13 @@ def imine_j_lower_bound(scores):
   reg = tf.math.scalar_mul(1.0, tf.math.square(marg_term))
   return joint_term - marg_term - reg + tf.stop_gradient(reg + marg_term)
 
+def imine_l1_lower_bound(scores):
+  joint_term = tf.reduce_mean(tf.linalg.diag_part(scores))
+  marg_term = reduce_logmeanexp_nodiag(scores)
+  mi = joint_term - marg_term
+  reg = tf.math.scalar_mul(1.0, tf.math.abs(marg_term))
+  return joint_term - marg_term - reg + tf.stop_gradient(reg)
+
 def smile_lower_bound(scores):
   joint_term = tf.reduce_mean(tf.linalg.diag_part(scores))
   marg_term = reduce_logmeanexp_nodiag(tf.clip_by_value(scores, -10, 10))
@@ -187,6 +194,8 @@ def estimate_mutual_information(estimator, x, y, critic_fn,
     mi = imine_lower_bound(scores)
   elif estimator == 'imine_j':
     mi = imine_j_lower_bound(scores)
+  elif estimator == 'imine_l1':
+    mi = imine_l1_lower_bound(scores)
   elif estimator == 'smile':
     mi = smile_lower_bound(scores)
   elif estimator == 'mine':
@@ -349,7 +358,7 @@ def train_estimator(critic_params, data_params, mi_params):
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--batch_size', type=int)
-parser.add_argument('--loss', choices=('NWJ', 'iMINE', 'iMINE_j', 'SMILE', 'MINE', 'TUBA', 'InfoNCE', 'JS', 'TNCE', 'alpha', 'all'))
+parser.add_argument('--loss', choices=('NWJ', 'iMINE', 'iMINE_j', 'iMINE_L1', 'SMILE', 'MINE', 'TUBA', 'InfoNCE', 'JS', 'TNCE', 'alpha', 'all'))
 parser.add_argument('--problem', choices=('gaussian', 'onehot'))
 
 args = parser.parse_args()
@@ -397,6 +406,7 @@ estimators = {
     'NWJ': dict(estimator='nwj', critic=critic_type, baseline='constant'),
     'iMINE': dict(estimator='imine', critic=critic_type, baseline='constant'),
     'iMINE_j': dict(estimator='imine_j', critic=critic_type, baseline='constant'),
+    'iMINE_L1': dict(estimator='imine_l1', critic=critic_type, baseline='constant'),
     'SMILE': dict(estimator='smile', critic=critic_type, baseline='constant'),
     'MINE': dict(estimator='mine', critic=critic_type, baseline='constant'),
     'TUBA': dict(estimator='tuba', critic=critic_type, baseline='unnormalized'),
