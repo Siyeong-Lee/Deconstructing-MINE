@@ -15,7 +15,7 @@ from util import TwoCropTransform, AverageMeter
 from util import adjust_learning_rate, warmup_learning_rate
 from util import set_optimizer, save_model
 from networks.resnet_big import SupConResNet
-from losses import SupConLoss
+from losses import SupConLoss, ReMINELoss
 
 try:
     import apex
@@ -61,7 +61,7 @@ def parse_option():
 
     # method
     parser.add_argument('--method', type=str, default='SupCon',
-                        choices=['SupCon', 'SimCLR'], help='choose method')
+                        choices=['SupCon', 'SimCLR', 'ReMINE'], help='choose method')
 
     # temperature
     parser.add_argument('--temp', type=float, default=0.07,
@@ -177,8 +177,13 @@ def set_loader(opt):
 
 
 def set_model(opt):
+    LossClass = {
+        'SupCon': SupConLoss,
+        'SimCLR': SupConLoss,
+        'ReMINE': ReMINELoss,
+    }[opt.method]
     model = SupConResNet(name=opt.model)
-    criterion = SupConLoss(temperature=opt.temp)
+    criterion = LossClass(temperature=opt.temp)
 
     # enable synchronized Batch Normalization
     if opt.syncBN:
@@ -219,7 +224,7 @@ def train(train_loader, model, criterion, optimizer, epoch, opt):
         features = model(images)
         f1, f2 = torch.split(features, [bsz, bsz], dim=0)
         features = torch.cat([f1.unsqueeze(1), f2.unsqueeze(1)], dim=1)
-        if opt.method == 'SupCon':
+        if opt.method in ('SupCon', 'ReMINE'):
             loss = criterion(features, labels)
         elif opt.method == 'SimCLR':
             loss = criterion(features)
