@@ -9,18 +9,30 @@ import json
 import tqdm
 
 
+class ModifiedImageNet(torchvision.datasets.ImageNet):
+    def __init__(self, root, train, download, transform):
+        super().__init__(
+            root='./data/imagenet',
+            split='train' if train else 'val',
+            transform=transform,
+        )
+
+    def parse_archives(self):
+        pass
+
 available_datasets = {
     'cifar10': (torchvision.datasets.CIFAR10, 10),
     'cifar100': (torchvision.datasets.CIFAR100, 100),
     'mnist': (torchvision.datasets.MNIST, 10),
     'fashion_mnist': (torchvision.datasets.FashionMNIST, 10),
+    'imagenet': (ModifiedImageNet, 1000),
 }
 
 def prepare_dataset(args):
     dataset_class, num_classes = available_datasets[args.dataset]
 
     transforms_list = [
-        transforms.Resize(224),
+        transforms.Resize((224, 224)),
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
     ]
@@ -33,12 +45,12 @@ def prepare_dataset(args):
     trainset = dataset_class(
         root='./data', train=True, download=True, transform=transform)
     trainloader = torch.utils.data.DataLoader(
-        trainset, batch_size=args.batch_size, shuffle=True, num_workers=2)
+        trainset, batch_size=args.batch_size, shuffle=True, num_workers=8)
 
     testset = dataset_class(
         root='./data', train=False, download=True, transform=transform)
     testloader = torch.utils.data.DataLoader(
-        testset, batch_size=args.batch_size, shuffle=False, num_workers=2)
+        testset, batch_size=args.batch_size, shuffle=False, num_workers=8)
 
     return trainloader, testloader, num_classes
 
@@ -90,7 +102,7 @@ def tuba(logits, labels):
     return 1 + t - et
 
 def nwj(logits, labels):
-    return tuba(logits - 1.0, labels) 
+    return tuba(logits - 1.0, labels)
 
 def js(logits, labels):
     _, classes = logits.shape
@@ -151,6 +163,7 @@ if __name__ == '__main__':
     parser.add_argument('--device', type=int, default=0)
     parser.add_argument('--epochs', type=int, default=5)
     parser.add_argument('--loss', type=str, choices=criterions.keys())
+    parser.add_argument('--skip-accuracy', type=str, choices=criterions.keys())
     args = parser.parse_args()
     print(args)
 
@@ -188,7 +201,7 @@ if __name__ == '__main__':
             train_loop.set_description(f'{loss.item():.4f}')
             loss_history.append(loss.item())
 
-        train_acc_history.append(get_accuracy(net, trainloader, args.device))
+        # train_acc_history.append(get_accuracy(net, trainloader, args.device))
         test_acc_history.append(get_accuracy(net, testloader, args.device))
 
     print('Finished Training')
