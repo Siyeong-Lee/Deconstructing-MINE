@@ -107,7 +107,7 @@ def nwj(logits, labels):
 
 def js(logits, labels):
     batch_size, classes = logits.shape
-    t = -torch.nn.functional.softplus(-_mask(labels, classes) * logits) / batch_size
+    t = -torch.nn.functional.softplus(-_mask(labels, classes) * logits).sum() / batch_size
     et = torch.nn.functional.softplus(logits).mean()
     return t - et
 
