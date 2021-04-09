@@ -97,16 +97,17 @@ def remine_l1(logits, labels, alpha):
     return t - et - alpha * torch.abs(et)
 
 def tuba(logits, labels):
-    t, et = _mine(logits, labels)
-    et = torch.exp(et)
+    batch_size, classes = logits.shape
+    t = torch.sum(_mask(labels, classes) * logits) / batch_size
+    et = logits.exp().mean()
     return 1 + t - et
 
 def nwj(logits, labels):
     return tuba(logits - 1.0, labels)
 
 def js(logits, labels):
-    _, classes = logits.shape
-    t = -torch.nn.functional.softplus(-_mask(labels, classes) * logits).mean()
+    batch_size, classes = logits.shape
+    t = -torch.nn.functional.softplus(-_mask(labels, classes) * logits) / batch_size
     et = torch.nn.functional.softplus(logits).mean()
     return t - et
 
@@ -163,7 +164,8 @@ if __name__ == '__main__':
     parser.add_argument('--device', type=int, default=0)
     parser.add_argument('--epochs', type=int, default=5)
     parser.add_argument('--loss', type=str, choices=criterions.keys())
-    parser.add_argument('--skip-accuracy', type=str, choices=criterions.keys())
+    parser.add_argument('--skip-train-accuracy', action='store_true')
+
     args = parser.parse_args()
     print(args)
 
@@ -201,7 +203,8 @@ if __name__ == '__main__':
             train_loop.set_description(f'{loss.item():.4f}')
             loss_history.append(loss.item())
 
-        # train_acc_history.append(get_accuracy(net, trainloader, args.device))
+        if not args.skip_train_accuracy:
+            train_acc_history.append(get_accuracy(net, trainloader, args.device))
         test_acc_history.append(get_accuracy(net, testloader, args.device))
 
     print('Finished Training')
