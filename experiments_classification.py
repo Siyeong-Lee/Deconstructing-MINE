@@ -126,8 +126,10 @@ def infonce(logits, labels):
 criterions = {
     'infonce': infonce,
     'mine': mine,
+    'remine-0.01': functools.partial(remine, alpha=0.01),
     'remine-0.1': functools.partial(remine, alpha=0.1),
     'remine-1.0': functools.partial(remine, alpha=1.0),
+    'remine_l1-0.01': functools.partial(remine_l1, alpha=0.01),
     'remine_l1-0.1': functools.partial(remine_l1, alpha=0.1),
     'remine_l1-1.0': functools.partial(remine_l1, alpha=1.0),
     'smile-1.0': functools.partial(smile, clip=1.0),
@@ -162,7 +164,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=100)
     parser.add_argument('--dataset', type=str, choices=available_datasets.keys())
     parser.add_argument('--device', type=int, default=0)
-    parser.add_argument('--epochs', type=int, default=5)
+    parser.add_argument('--epochs', type=int, default=20)
     parser.add_argument('--loss', type=str, choices=criterions.keys())
     parser.add_argument('--skip-train-accuracy', action='store_true')
 
@@ -170,7 +172,7 @@ if __name__ == '__main__':
     print(args)
 
     trainloader, testloader, num_classes = prepare_dataset(args)
-    net = torchvision.models.resnet18(pretrained=False, num_classes=num_classes)
+    net = torchvision.models.resnet152(pretrained=False, num_classes=num_classes)
 
     criterion = criterions[args.loss]
     optimizer = torch.optim.Adam(net.parameters())
@@ -210,6 +212,11 @@ if __name__ == '__main__':
     print('Finished Training')
     os.makedirs(f'cls_exp/{args.dataset}', exist_ok=True)
     np.save(f'cls_exp/{args.dataset}/{args.loss}.npy', np.array(loss_history))
+    torch.save({
+        'epoch': epoch,
+        'model_state_dict': net.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+    }, f'cls_exp/{args.dataset}/{args.loss}.pth')
 
     json.dump({
         'train_acc': train_acc_history,
