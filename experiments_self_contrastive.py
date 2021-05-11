@@ -3,7 +3,7 @@ import torch
 import torchvision
 import numpy as np
 import torchvision.transforms as transforms
-import functools
+from functools import partial
 import os
 import json
 import tqdm
@@ -20,6 +20,7 @@ class ModifiedImageNet(torchvision.datasets.ImageNet):
     def parse_archives(self):
         pass
 
+
 available_datasets = {
     'cifar10': (torchvision.datasets.CIFAR10, 10),
     'cifar100': (torchvision.datasets.CIFAR100, 100),
@@ -27,6 +28,7 @@ available_datasets = {
     'fashion_mnist': (torchvision.datasets.FashionMNIST, 10),
     'imagenet': (ModifiedImageNet, 1000),
 }
+
 
 def prepare_dataset(args):
     dataset_class, num_classes = available_datasets[args.dataset]
@@ -54,28 +56,43 @@ def prepare_dataset(args):
 
     return trainloader, testloader, num_classes
 
-def get_accuracy(model, loader, device):
+
+def get_logits_labels(model, loader, device):
+    outputs_acc = []
+    labels_acc = []
+
+    with torch.no_grad():
+        for inputs, labels in tqdm.tqdm(loader):
+            outputs = model(inputs.to(device))
+            outputs_acc.append(outputs.detach().cpu().numpy())
+            labels_acc.append(labels.numpy())
+
+    labels_acc = np.concatenate(labels_acc, axis=0)
+    outputs_acc = np.concatenate(outputs_acc, axis=0)
+
+    return outputs_acc, labels_acc
+
+
+def get_accuracy(model, trainloader, testloader, device):
+    train_logits, train_labels = get_logits_labels(model, trainloader, device)
+    test_logits, test_labels = get_logits_labels(model, testloader, device)
+
     count = 0
     correct = 0
 
-    with torch.no_grad():
-        for i, data in tqdm.tqdm(enumerate(loader, 0)):
-            inputs, labels = data
-
-            inputs = inputs.to(device)
-            outputs = net(inputs).argmax(dim=1).cpu().detach().numpy()
-            labels = labels.numpy()
-
-            count += len(labels)
-            correct += sum(labels == outputs)
+    for test_index in tqdm.tqdm(range(len(test_labels))):
+        correct += train_labels[np.dot(train_logits, test_logits[test_index]).argmax()] == test_labels[test_index]
+        count += 1
 
     return correct / count
+
 
 def _masked_dot_products(logits, labels):
     marginal_mask = ~torch.eye(len(labels), dtype=torch.bool, device=labels.device)
     joint_mask = (labels[:, None] == labels) & marginal_mask
     dot_mat = torch.matmul(logits, logits.T)
     return torch.masked_select(dot_mat, joint_mask), torch.masked_select(dot_mat, marginal_mask)
+
 
 def _mine(logits, labels):
     batch_size, _ = logits.shape
@@ -84,17 +101,21 @@ def _mine(logits, labels):
     et = torch.logsumexp(marginal, dim=0) - np.log(batch_size * (batch_size - 1))
     return t, et
 
+
 def mine(logits, labels):
     t, et = _mine(logits, labels)
     return t - et
+
 
 def remine_j(logits, labels):
     t, _ = _mine(logits, labels)
     return t
 
+
 def remine(logits, labels, alpha):
     t, et = _mine(logits, labels)
     return t - et - alpha * et * et
+
 
 def smile(logits, labels, clip):
     batch_size, _ = logits.shape
@@ -103,9 +124,11 @@ def smile(logits, labels, clip):
     et = torch.logsumexp(torch.clamp(marginal, -clip, clip), dim=0) - np.log(batch_size * (batch_size - 1))
     return t - et
 
+
 def remine_l1(logits, labels, alpha):
     t, et = _mine(logits, labels)
     return t - et - alpha * torch.abs(et)
+
 
 def tuba(logits, labels):
     joint, marginal = _masked_dot_products(logits, labels)
@@ -113,14 +136,17 @@ def tuba(logits, labels):
     et = marginal.exp().mean()
     return 1 + t - et
 
+
 def nwj(logits, labels):
     return tuba(logits - 1.0, labels)
+
 
 def js(logits, labels):
     joint, marginal = _masked_dot_products(logits, labels)
     t = -torch.nn.functional.softplus(-joint).mean()
     et = torch.nn.functional.softplus(marginal).mean()
     return t - et
+
 
 def mix(logits, labels, estimator, trainer):
     mi = estimator(logits, labels)
@@ -129,49 +155,50 @@ def mix(logits, labels, estimator, trainer):
         mi_grad = mi - grad
     return grad + mi_grad
 
+
 criterions = {
     'mine': mine,
-    'remine-0.1': functools.partial(remine, alpha=0.1),
-    'remine-1.0': functools.partial(remine, alpha=1.0),
-    'remine_l1-0.01': functools.partial(remine_l1, alpha=0.01),
-    'remine_l1-0.1': functools.partial(remine_l1, alpha=0.1),
-    'remine_l1-1.0': functools.partial(remine_l1, alpha=1.0),
-    'smile-1.0': functools.partial(smile, clip=1.0),
-    'smile-10.0': functools.partial(smile, clip=10.0),
+    'remine-0.1': partial(remine, alpha=0.1),
+    'remine-1.0': partial(remine, alpha=1.0),
+    'remine_l1-0.01': partial(remine_l1, alpha=0.01),
+    'remine_l1-0.1': partial(remine_l1, alpha=0.1),
+    'remine_l1-1.0': partial(remine_l1, alpha=1.0),
+    'smile-1.0': partial(smile, clip=1.0),
+    'smile-10.0': partial(smile, clip=10.0),
     'tuba': tuba,
     'nwj': nwj,
     'js': js,
-    'nwj_js': functools.partial(mix, estimator=nwj, trainer=js),
-    'smile-1.0_js': functools.partial(mix,
-        estimator=functools.partial(smile, clip=1.0),
-        trainer=js),
-    'smile-10.0_js': functools.partial(mix,
-        estimator=functools.partial(smile, clip=10.0),
-        trainer=js),
-    'smile-1.0_remine-0.1': functools.partial(mix,
-        estimator=functools.partial(smile, clip=1.0),
-        trainer=functools.partial(remine, alpha=0.1)),
-    'smile-1.0_remine-1.0': functools.partial(mix,
-        estimator=functools.partial(smile, clip=1.0),
-        trainer=functools.partial(remine, alpha=1.0)),
-    'smile-10.0_remine-0.1': functools.partial(mix,
-        estimator=functools.partial(smile, clip=10.0),
-        trainer=functools.partial(remine, alpha=0.1)),
-    'smile-10.0_remine-1.0': functools.partial(mix,
-        estimator=functools.partial(smile, clip=10.0),
-        trainer=functools.partial(remine, alpha=1.0)),
-    'remine_j-0.1': functools.partial(mix,
-        estimator=remine_j,
-        trainer=functools.partial(remine, alpha=0.1)),
-    'remine_j-1.0': functools.partial(mix,
-        estimator=remine_j,
-        trainer=functools.partial(remine, alpha=1.0)),
-    'remine_j_l1-0.1': functools.partial(mix,
-        estimator=remine_j,
-        trainer=functools.partial(remine_l1, alpha=0.1)),
-    'remine_j_l1-1.0': functools.partial(mix,
-        estimator=remine_j,
-        trainer=functools.partial(remine_l1, alpha=1.0)),
+    'nwj_js': partial(mix, estimator=nwj, trainer=js),
+    'smile-1.0_js': partial(mix,
+                            estimator=partial(smile, clip=1.0),
+                            trainer=js),
+    'smile-10.0_js': partial(mix,
+                             estimator=partial(smile, clip=10.0),
+                             trainer=js),
+    'smile-1.0_remine-0.1': partial(mix,
+                                    estimator=partial(smile, clip=1.0),
+                                    trainer=partial(remine, alpha=0.1)),
+    'smile-1.0_remine-1.0': partial(mix,
+                                    estimator=partial(smile, clip=1.0),
+                                    trainer=partial(remine, alpha=1.0)),
+    'smile-10.0_remine-0.1': partial(mix,
+                                     estimator=partial(smile, clip=10.0),
+                                     trainer=partial(remine, alpha=0.1)),
+    'smile-10.0_remine-1.0': partial(mix,
+                                     estimator=partial(smile, clip=10.0),
+                                     trainer=partial(remine, alpha=1.0)),
+    'remine_j-0.1': partial(mix,
+                            estimator=remine_j,
+                            trainer=partial(remine, alpha=0.1)),
+    'remine_j-1.0': partial(mix,
+                            estimator=remine_j,
+                            trainer=partial(remine, alpha=1.0)),
+    'remine_j_l1-0.1': partial(mix,
+                               estimator=remine_j,
+                               trainer=partial(remine_l1, alpha=0.1)),
+    'remine_j_l1-1.0': partial(mix,
+                               estimator=remine_j,
+                               trainer=partial(remine_l1, alpha=1.0)),
 }
 
 
@@ -180,23 +207,34 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=100)
     parser.add_argument('--dataset', type=str, choices=available_datasets.keys())
     parser.add_argument('--device', type=int, default=0)
-    parser.add_argument('--epochs', type=int, default=20)
+    parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--loss', type=str, choices=criterions.keys())
 
     args = parser.parse_args()
     print(args)
 
     trainloader, testloader, num_classes = prepare_dataset(args)
-    net = torchvision.models.resnet152(pretrained=False, num_classes=num_classes)
+    net = torchvision.models.resnet18(pretrained=False, num_classes=num_classes)
 
     criterion = criterions[args.loss]
     optimizer = torch.optim.Adam(net.parameters())
 
     net.to(args.device)
+    os.makedirs(f'self_exp/{args.dataset}', exist_ok=True)
+
+    pretrained_path = f'self_exp/{args.dataset}/{args.loss}.pth'
+    if os.path.exists(pretrained_path):
+        checkpoint = torch.load(pretrained_path, map_location='cpu')
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        last_epoch = checkpoint['epoch']
+    else:
+        last_epoch = -1
 
     loss_history = []
+    test_acc_history = []
 
-    for epoch in range(args.epochs):  # loop over the dataset multiple times
+    for epoch in range(last_epoch + 1, args.epochs):  # loop over the dataset multiple times
         train_loop = tqdm.tqdm(enumerate(trainloader, 0))
         for i, data in train_loop:
             # get the inputs; data is a list of [inputs, labels]
@@ -218,14 +256,16 @@ if __name__ == '__main__':
             train_loop.set_description(f'{loss.item():.4f}')
             loss_history.append(loss.item())
 
-        os.makedirs(f'self_exp/{args.dataset}', exist_ok=True)
+        test_acc_history.append(get_accuracy(net, trainloader, testloader, args.device))
+
         np.save(f'self_exp/{args.dataset}/{args.loss}.npy', np.array(loss_history))
+        json.dump({
+            'test_acc': test_acc_history,
+        }, open(f'self_exp/{args.dataset}/{args.loss}.json', 'w'))
 
     print('Finished Training')
-    os.makedirs(f'self_exp/{args.dataset}', exist_ok=True)
-    np.save(f'self_exp/{args.dataset}/{args.loss}.npy', np.array(loss_history))
     torch.save({
         'epoch': epoch,
         'model_state_dict': net.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
-    }, f'self_exp/{args.dataset}/{args.loss}.pth')
+    }, pretrained_path)
