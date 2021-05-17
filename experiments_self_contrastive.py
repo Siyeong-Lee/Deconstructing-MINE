@@ -7,6 +7,7 @@ from functools import partial
 import os
 import json
 import tqdm
+import random
 
 
 class ModifiedImageNet(torchvision.datasets.ImageNet):
@@ -28,6 +29,15 @@ available_datasets = {
     'fashion_mnist': (torchvision.datasets.FashionMNIST, 10),
     'imagenet': (ModifiedImageNet, 1000),
 }
+
+
+def set_seed(seed):
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed(args.seed)
+    torch.backends.cudnn.deterministic = True
+
 
 
 def prepare_dataset(args):
@@ -112,9 +122,9 @@ def remine_j(logits, labels):
     return t
 
 
-def remine(logits, labels, alpha):
+def remine(logits, labels, alpha, bias):
     t, et = _mine(logits, labels)
-    return t - et - alpha * et * et
+    return t - et - alpha * torch.square(et - bias)
 
 
 def smile(logits, labels, clip):
@@ -158,8 +168,14 @@ def mix(logits, labels, estimator, trainer):
 
 criterions = {
     'mine': mine,
-    'remine-0.1': partial(remine, alpha=0.1),
-    'remine-1.0': partial(remine, alpha=1.0),
+    'remine-0.1': partial(remine, alpha=0.1, bias=0.0),
+    'remine-0.5': partial(remine, alpha=0.5, bias=0.0),
+    'remine-1.0': partial(remine, alpha=1.0, bias=0.0),
+    'remine_log10-10.0': partial(remine, alpha=10.0, bias=-np.log(10)),
+    'remine_log10-1.0': partial(remine, alpha=1.0, bias=-np.log(10)),
+    'remine_log10-0.1': partial(remine, alpha=0.1, bias=-np.log(10)),
+    'remine_log10-0.01': partial(remine, alpha=0.01, bias=-np.log(10)),
+    'remine_log10-0.001': partial(remine, alpha=0.001, bias=-np.log(10)),
     'remine_l1-0.01': partial(remine_l1, alpha=0.01),
     'remine_l1-0.1': partial(remine_l1, alpha=0.1),
     'remine_l1-1.0': partial(remine_l1, alpha=1.0),
@@ -177,22 +193,22 @@ criterions = {
                              trainer=js),
     'smile-1.0_remine-0.1': partial(mix,
                                     estimator=partial(smile, clip=1.0),
-                                    trainer=partial(remine, alpha=0.1)),
+                                    trainer=partial(remine, alpha=0.1, bias=0.0)),
     'smile-1.0_remine-1.0': partial(mix,
                                     estimator=partial(smile, clip=1.0),
-                                    trainer=partial(remine, alpha=1.0)),
+                                    trainer=partial(remine, alpha=1.0, bias=0.0)),
     'smile-10.0_remine-0.1': partial(mix,
                                      estimator=partial(smile, clip=10.0),
-                                     trainer=partial(remine, alpha=0.1)),
+                                     trainer=partial(remine, alpha=0.1, bias=0.0)),
     'smile-10.0_remine-1.0': partial(mix,
                                      estimator=partial(smile, clip=10.0),
-                                     trainer=partial(remine, alpha=1.0)),
+                                     trainer=partial(remine, alpha=1.0, bias=0.0)),
     'remine_j-0.1': partial(mix,
                             estimator=remine_j,
-                            trainer=partial(remine, alpha=0.1)),
+                            trainer=partial(remine, alpha=0.1, bias=0.0)),
     'remine_j-1.0': partial(mix,
                             estimator=remine_j,
-                            trainer=partial(remine, alpha=1.0)),
+                            trainer=partial(remine, alpha=1.0, bias=0.0)),
     'remine_j_l1-0.1': partial(mix,
                                estimator=remine_j,
                                trainer=partial(remine_l1, alpha=0.1)),
@@ -206,33 +222,43 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--batch_size', type=int, default=100)
     parser.add_argument('--dataset', type=str, choices=available_datasets.keys())
+    parser.add_argument('--model', type=str, default='resnet18')
     parser.add_argument('--device', type=int, default=0)
-    parser.add_argument('--epochs', type=int, default=100)
+    parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--loss', type=str, choices=criterions.keys())
+    parser.add_argument('--seed', type=int, default=0)
 
     args = parser.parse_args()
     print(args)
 
+    set_seed(args.seed)
+
     trainloader, testloader, num_classes = prepare_dataset(args)
-    net = torchvision.models.resnet18(pretrained=False, num_classes=num_classes)
+    net = getattr(torchvision.models, args.model)(pretrained=False, num_classes=num_classes)
 
     criterion = criterions[args.loss]
     optimizer = torch.optim.Adam(net.parameters())
 
     net.to(args.device)
-    os.makedirs(f'self_exp/{args.dataset}', exist_ok=True)
+    root_dir = f'self_exp/model={args.model}/dataset={args.dataset}/seed={args.seed}'
+    os.makedirs(root_dir, exist_ok=True)
 
-    pretrained_path = f'self_exp/{args.dataset}/{args.loss}.pth'
+    pretrained_path = f'{root_dir}/{args.loss}.pth'
+    loss_history_path = f'{root_dir}/{args.loss}.npy'
+    train_acc_history_path = f'{root_dir}/{args.loss}.json'
+
+    loss_history = []
+    test_acc_history = []
+
     if os.path.exists(pretrained_path):
         checkpoint = torch.load(pretrained_path, map_location='cpu')
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         last_epoch = checkpoint['epoch']
+        loss_history = np.load(loss_history_path).tolist()
+        test_acc_history = json.load(open(train_acc_history_path))['test_acc']
     else:
         last_epoch = -1
-
-    loss_history = []
-    test_acc_history = []
 
     for epoch in range(last_epoch + 1, args.epochs):  # loop over the dataset multiple times
         train_loop = tqdm.tqdm(enumerate(trainloader, 0))
@@ -253,15 +279,15 @@ if __name__ == '__main__':
             optimizer.step()
 
             # print statistics
-            train_loop.set_description(f'{loss.item():.4f}')
+            train_loop.set_description(f'Epoch [{epoch}/{args.epochs}] {loss.item():.4f}')
             loss_history.append(loss.item())
 
         test_acc_history.append(get_accuracy(net, trainloader, testloader, args.device))
 
-        np.save(f'self_exp/{args.dataset}/{args.loss}.npy', np.array(loss_history))
+        np.save(loss_history_path, np.array(loss_history))
         json.dump({
             'test_acc': test_acc_history,
-        }, open(f'self_exp/{args.dataset}/{args.loss}.json', 'w'))
+        }, open(train_acc_history_path, 'w'))
 
     print('Finished Training')
     torch.save({
