@@ -8,6 +8,7 @@ import os
 import json
 import tqdm
 import random
+import sys
 
 
 class ModifiedImageNet(torchvision.datasets.ImageNet):
@@ -37,7 +38,6 @@ def set_seed(seed):
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
     torch.backends.cudnn.deterministic = True
-
 
 
 def prepare_dataset(args):
@@ -176,6 +176,8 @@ criterions = {
     'remine_log10-0.1': partial(remine, alpha=0.1, bias=-np.log(10)),
     'remine_log10-0.01': partial(remine, alpha=0.01, bias=-np.log(10)),
     'remine_log10-0.001': partial(remine, alpha=0.001, bias=-np.log(10)),
+    'remine_log100-0.1': partial(remine, alpha=0.1, bias=-np.log(100)),
+    'remine_log100-0.01': partial(remine, alpha=0.01, bias=-np.log(100)),
     'remine_l1-0.01': partial(remine_l1, alpha=0.01),
     'remine_l1-0.1': partial(remine_l1, alpha=0.1),
     'remine_l1-1.0': partial(remine_l1, alpha=1.0),
@@ -231,6 +233,13 @@ if __name__ == '__main__':
     args = parser.parse_args()
     print(args)
 
+    root_dir = f'self_exp/model={args.model}/dataset={args.dataset}/seed={args.seed}'
+    os.makedirs(root_dir, exist_ok=True)
+
+    if os.path.exists(f'{root_dir}/{args.loss}.pth'):
+        print(f'{root_dir}: Results already exists')
+        sys.exit(0)
+
     set_seed(args.seed)
 
     trainloader, testloader, num_classes = prepare_dataset(args)
@@ -240,8 +249,6 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(net.parameters())
 
     net.to(args.device)
-    root_dir = f'self_exp/model={args.model}/dataset={args.dataset}/seed={args.seed}'
-    os.makedirs(root_dir, exist_ok=True)
 
     pretrained_path = f'{root_dir}/{args.loss}.pth'
     loss_history_path = f'{root_dir}/{args.loss}.npy'
