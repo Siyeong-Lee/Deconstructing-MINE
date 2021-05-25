@@ -156,14 +156,13 @@ def infonce(logits, labels):
 criterions = {
     'infonce': infonce,
     'mine': mine,
+    'remine-0.001': partial(remine, alpha=0.001, bias=0.0),
     'remine-0.01': partial(remine, alpha=0.01, bias=0.0),
     'remine-0.1': partial(remine, alpha=0.1, bias=0.0),
     'remine-1.0': partial(remine, alpha=1.0, bias=0.0),
     'remine_l1-0.01': partial(remine_l1, alpha=0.01),
     'remine_l1-0.1': partial(remine_l1, alpha=0.1),
     'remine_l1-1.0': partial(remine_l1, alpha=1.0),
-    'remine_log10-0.01': partial(remine, alpha=0.01, bias=-np.log(10)),
-    'remine_log100-0.01': partial(remine, alpha=0.01, bias=-np.log(100)),
     'smile-1.0': partial(smile, clip=1.0),
     'smile-10.0': partial(smile, clip=10.0),
     'tuba': tuba,
@@ -188,6 +187,12 @@ criterions = {
     'smile-10.0_remine-1.0': partial(mix,
                                      estimator=partial(smile, clip=10.0),
                                      trainer=partial(remine, alpha=1.0, bias=0.0)),
+    'remine_j-0.001': partial(mix,
+                            estimator=remine_j,
+                            trainer=partial(remine, alpha=0.001, bias=0.0)),
+    'remine_j-0.01': partial(mix,
+                            estimator=remine_j,
+                            trainer=partial(remine, alpha=0.01, bias=0.0)),
     'remine_j-0.1': partial(mix,
                             estimator=remine_j,
                             trainer=partial(remine, alpha=0.1, bias=0.0)),
@@ -217,7 +222,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
     print(args)
 
-    root_dir = f'cls_exp/model={args.model}/dataset={args.dataset}/seed={args.seed}'
+    if args.batch_size != 100 and args.dataset == 'cifar100':
+        root_dir = f'cls_batch_size_exp/batch_size={args.batch_size}/dataset={args.dataset}/seed={args.seed}'
+    else:
+        root_dir = f'cls_exp/model={args.model}/dataset={args.dataset}/seed={args.seed}'
     os.makedirs(root_dir, exist_ok=True)
 
     if os.path.exists(f'{root_dir}/{args.loss}.pth'):

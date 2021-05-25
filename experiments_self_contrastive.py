@@ -112,6 +112,27 @@ def _mine(logits, labels):
     return t, et
 
 
+def infonce(logits, labels):
+    batch_size, _ = logits.shape
+    marginal_mask = ~torch.eye(len(labels), dtype=torch.bool, device=labels.device)
+    joint_mask = (labels[:, None] == labels) & marginal_mask
+    dot_mat = torch.matmul(logits, logits.T)
+
+    t = torch.masked_select(dot_mat, joint_mask).mean()
+
+    et = 0
+    empty_mask = torch.zeros((batch_size, batch_size), dtype=torch.bool, device=labels.device)
+    for row in range(batch_size):
+        empty_mask[row] = True
+        if row != 0:
+            empty_mask[row - 1] = False
+        row_et = torch.masked_select(dot_mat, empty_mask & marginal_mask)
+        et += torch.logsumexp(row_et, dim=0) - np.log(len(row_et))
+    et /= batch_size
+
+    return t - et
+
+
 def mine(logits, labels):
     t, et = _mine(logits, labels)
     return t - et
@@ -168,16 +189,16 @@ def mix(logits, labels, estimator, trainer):
 
 criterions = {
     'mine': mine,
+    'infonce': infonce,
+    'remine-0.001': partial(remine, alpha=0.001, bias=0.0),
+    'remine-0.005': partial(remine, alpha=0.005, bias=0.0),
+    'remine-0.01': partial(remine, alpha=0.01, bias=0.0),
+    'remine-0.05': partial(remine, alpha=0.05, bias=0.0),
     'remine-0.1': partial(remine, alpha=0.1, bias=0.0),
     'remine-0.5': partial(remine, alpha=0.5, bias=0.0),
     'remine-1.0': partial(remine, alpha=1.0, bias=0.0),
-    'remine_log10-10.0': partial(remine, alpha=10.0, bias=-np.log(10)),
-    'remine_log10-1.0': partial(remine, alpha=1.0, bias=-np.log(10)),
-    'remine_log10-0.1': partial(remine, alpha=0.1, bias=-np.log(10)),
-    'remine_log10-0.01': partial(remine, alpha=0.01, bias=-np.log(10)),
-    'remine_log10-0.001': partial(remine, alpha=0.001, bias=-np.log(10)),
-    'remine_log100-0.1': partial(remine, alpha=0.1, bias=-np.log(100)),
-    'remine_log100-0.01': partial(remine, alpha=0.01, bias=-np.log(100)),
+    'remine-5.0': partial(remine, alpha=5.0, bias=0.0),
+    'remine-10.0': partial(remine, alpha=10.0, bias=0.0),
     'remine_l1-0.01': partial(remine_l1, alpha=0.01),
     'remine_l1-0.1': partial(remine_l1, alpha=0.1),
     'remine_l1-1.0': partial(remine_l1, alpha=1.0),
@@ -205,12 +226,24 @@ criterions = {
     'smile-10.0_remine-1.0': partial(mix,
                                      estimator=partial(smile, clip=10.0),
                                      trainer=partial(remine, alpha=1.0, bias=0.0)),
+    'remine_j-0.001': partial(mix,
+                            estimator=remine_j,
+                            trainer=partial(remine, alpha=0.001, bias=0.0)),
+    'remine_j-0.01': partial(mix,
+                            estimator=remine_j,
+                            trainer=partial(remine, alpha=0.01, bias=0.0)),
     'remine_j-0.1': partial(mix,
                             estimator=remine_j,
                             trainer=partial(remine, alpha=0.1, bias=0.0)),
+    'remine_j-0.5': partial(mix,
+                            estimator=remine_j,
+                            trainer=partial(remine, alpha=0.5, bias=0.0)),
     'remine_j-1.0': partial(mix,
                             estimator=remine_j,
                             trainer=partial(remine, alpha=1.0, bias=0.0)),
+    'remine_j-10.0': partial(mix,
+                            estimator=remine_j,
+                            trainer=partial(remine, alpha=10.0, bias=0.0)),
     'remine_j_l1-0.1': partial(mix,
                                estimator=remine_j,
                                trainer=partial(remine_l1, alpha=0.1)),
@@ -233,7 +266,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
     print(args)
 
-    root_dir = f'self_exp/model={args.model}/dataset={args.dataset}/seed={args.seed}'
+    if args.batch_size != 100:
+        root_dir = f'batch_size_exp/batch_size={args.batch_size}/dataset={args.dataset}/seed={args.seed}'
+    else:
+        root_dir = f'self_exp/model={args.model}/dataset={args.dataset}/seed={args.seed}'
     os.makedirs(root_dir, exist_ok=True)
 
     if os.path.exists(f'{root_dir}/{args.loss}.pth'):
