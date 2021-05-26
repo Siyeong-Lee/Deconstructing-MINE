@@ -118,17 +118,13 @@ def infonce(logits, labels):
     joint_mask = (labels[:, None] == labels) & marginal_mask
     dot_mat = torch.matmul(logits, logits.T)
 
-    t = torch.masked_select(dot_mat, joint_mask).mean()
+    joints = torch.masked_select(dot_mat, joint_mask)
+    t = joints.mean()
 
-    et = 0
-    empty_mask = torch.zeros((batch_size, batch_size), dtype=torch.bool, device=labels.device)
-    for row in range(batch_size):
-        empty_mask[row] = True
-        if row != 0:
-            empty_mask[row - 1] = False
-        row_et = torch.masked_select(dot_mat, empty_mask & marginal_mask)
-        et += torch.logsumexp(row_et, dim=0) - np.log(len(row_et))
-    et /= batch_size
+    marginals = torch.masked_select(dot_mat, marginal_mask)
+    et_all = torch.logsumexp(marginals.reshape((batch_size, batch_size - 1)), dim=1) - np.log(batch_size - 1)
+    et_select = joint_mask.sum(1).float()
+    et = torch.dot(et_all, et_select) / et_select.sum()
 
     return t - et
 
