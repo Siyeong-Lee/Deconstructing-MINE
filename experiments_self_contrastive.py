@@ -266,14 +266,14 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--loss', type=str, choices=criterions.keys())
     parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--remove_fc', action='store_true')
+    parser.add_argument('--optimizer', type=str, choices=['Adam', 'SGD'], default='Adam')
+    parser.add_argument('--lr', type=float, default=0.001)
 
     args = parser.parse_args()
     print(args)
 
-    if args.batch_size != 100:
-        root_dir = f'batch_size_exp/batch_size={args.batch_size}/dataset={args.dataset}/seed={args.seed}'
-    else:
-        root_dir = f'self_exp/model={args.model}/dataset={args.dataset}/seed={args.seed}'
+    root_dir = f'self_exp/model={args.model}/dataset={args.dataset}/remove_fc={args.remove_fc}/optimizer={args.optimizer}/lr={args.lr}/seed={args.seed}'
     os.makedirs(root_dir, exist_ok=True)
 
     if os.path.exists(f'{root_dir}/{args.loss}.pth'):
@@ -284,9 +284,11 @@ if __name__ == '__main__':
 
     trainloader, testloader, num_classes = prepare_dataset(args)
     net = getattr(torchvision.models, args.model)(pretrained=False, num_classes=num_classes)
+    if args.remove_fc:
+        net.fc = torch.nn.Identity()
 
     criterion = criterions[args.loss]
-    optimizer = torch.optim.Adam(net.parameters())
+    optimizer = getattr(torch.optim, args.optimizer)(net.parameters(), lr=args.lr)
 
     net.to(args.device)
 
@@ -307,6 +309,7 @@ if __name__ == '__main__':
     else:
         last_epoch = -1
 
+    nan_count = 0
     for epoch in range(last_epoch + 1, args.epochs):  # loop over the dataset multiple times
         train_loop = tqdm.tqdm(enumerate(trainloader, 0))
         for i, data in train_loop:
@@ -326,8 +329,15 @@ if __name__ == '__main__':
             optimizer.step()
 
             # print statistics
-            train_loop.set_description(f'Epoch [{epoch}/{args.epochs}] {loss.item():.4f}')
+            train_loop.set_description(f'Epoch [{epoch}/{args.epochs}] ({nan_count}) {loss.item():.4f}')
             loss_history.append(loss.item())
+
+            # Counting NaNs. If too much, break
+            if torch.isnan(loss):
+                nan_count += 1
+
+        if nan_count >= 1000:
+            break
 
         test_acc_history.append(get_accuracy(net, trainloader, testloader, args.device))
 
