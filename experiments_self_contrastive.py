@@ -34,10 +34,10 @@ available_datasets = {
 
 
 def set_seed(seed):
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    torch.cuda.manual_seed(args.seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
 
 
@@ -159,7 +159,14 @@ def remine_j(logits, labels):
 
 def remine(logits, labels, alpha, bias):
     t, et, joint, marginal = _mine(logits, labels)
-    return t - et - alpha * torch.square(et - bias), joint, marginal
+    reg = alpha * torch.square(et - bias)
+    loss = t - et - reg
+
+    with torch.no_grad():
+        mi = t - et
+        mi_loss = mi - loss
+
+    return loss + mi_loss, joint, marginal
 
 
 def smile(logits, labels, clip):
@@ -230,22 +237,13 @@ def mix(logits, labels, estimator, trainer):
 criterions = {
     'mine': mine,
     'infonce': infonce,
-    'remine-0.001': partial(remine, alpha=0.001, bias=0.0),
-    'remine-0.005': partial(remine, alpha=0.005, bias=0.0),
-    'remine-0.01': partial(remine, alpha=0.01, bias=0.0),
-    'remine-0.05': partial(remine, alpha=0.05, bias=0.0),
-    'remine-0.1': partial(remine, alpha=0.1, bias=0.0),
-    'remine-0.5': partial(remine, alpha=0.5, bias=0.0),
-    'remine-1.0': partial(remine, alpha=1.0, bias=0.0),
-    'remine-5.0': partial(remine, alpha=5.0, bias=0.0),
-    'remine-10.0': partial(remine, alpha=10.0, bias=0.0),
     'remine_l1-0.01': partial(remine_l1, alpha=0.01),
     'remine_l1-0.1': partial(remine_l1, alpha=0.1),
     'remine_l1-1.0': partial(remine_l1, alpha=1.0),
     'smile-1.0': partial(smile, clip=1.0),
     'smile-10.0': partial(smile, clip=10.0),
-    'reinfonce-0.1': partial(reinfonce, alpha=0.1, bias=1.0),
-    'reinfonce-1.0': partial(reinfonce, alpha=1.0, bias=1.0),
+    'reinfonce-0.1': partial(reinfonce, alpha=0.1, bias=0.0),
+    'reinfonce-1.0': partial(reinfonce, alpha=1.0, bias=0.0),
     'renwj-0.1': partial(renwj, alpha=0.1, bias=1.0),
     'renwj-1.0': partial(renwj, alpha=1.0, bias=1.0),
     'resmile-1.0-0.1': partial(resmile, clip=1.0, alpha=0.1, bias=0.0),
@@ -302,15 +300,19 @@ criterions = {
                                trainer=partial(remine_l1, alpha=1.0)),
 }
 
+for alpha in (0.1, 0.01, 0.001):
+    for bias in (0, -5, -10, -15):
+        criterions[f'remine_a{alpha}_b{-bias}'] = partial(remine_l1, alpha=alpha, bias=bias)
+
 
 class NumpyHistorySaver:
-    def __init__(self, store_type: type, directory: Path, filename: str):
+    def __init__(self, store_type: type, directory: Path, filename: str, prev_iter: int = 0):
         assert store_type in (float, np.ndarray)
 
         self.directory = directory
         self.filename = filename
         self.store_type = store_type
-        self.iteration = 0
+        self.iteration = prev_iter
         self.history = []
 
     def get_filename(self):
@@ -341,7 +343,7 @@ if __name__ == '__main__':
     parser.add_argument('--loss', type=str, choices=criterions.keys())
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--remove_fc', action='store_true')
-    parser.add_argument('--optimizer', type=str, choices=['Adam', 'SGD'], default='Adam')
+    parser.add_argument('--optimizer', type=str, choices=['Adam', 'SGD', 'Adagrad'], default='Adam')
     parser.add_argument('--lr', type=float, default=0.001)
 
     args = parser.parse_args()
@@ -370,14 +372,12 @@ if __name__ == '__main__':
     accuracy_saver = NumpyHistorySaver(float, Path(root_dir), f'{args.loss}_accuracy')
     joint_saver = NumpyHistorySaver(np.ndarray, Path(root_dir), f'{args.loss}_joint')
     marginal_saver = NumpyHistorySaver(np.ndarray, Path(root_dir), f'{args.loss}_marginal')
-    
+
     if os.path.exists(pretrained_path):
         checkpoint = torch.load(pretrained_path, map_location='cpu')
-        model.load_state_dict(checkpoint['model_state_dict'])
+        net.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         last_epoch = checkpoint['epoch']
-        loss_history = np.load(loss_history_path).tolist()
-        test_acc_history = json.load(open(train_acc_history_path))['test_acc']
     else:
         last_epoch = -1
 
@@ -412,14 +412,15 @@ if __name__ == '__main__':
 
         joint_saver.dump()
         marginal_saver.dump()
+        loss_saver.dump()
+
         accuracy_saver.store(get_accuracy(net, trainloader, testloader, args.device))
+        accuracy_saver.dump()
 
         if nan_count >= 1000:
             break
 
     print('Finished Training')
-    loss_saver.dump()
-    accuracy_saver.dump()
     torch.save({
         'epoch': epoch,
         'model_state_dict': net.state_dict(),
