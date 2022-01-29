@@ -302,7 +302,7 @@ criterions = {
 
 for alpha in (0.1, 0.01, 0.001):
     for bias in (0, -5, -10, -15):
-        criterions[f'remine_a{alpha}_b{-bias}'] = partial(remine_l1, alpha=alpha, bias=bias)
+        criterions[f'remine_a{alpha}_b{-bias}'] = partial(remine, alpha=alpha, bias=bias)
 
 
 class NumpyHistorySaver:
