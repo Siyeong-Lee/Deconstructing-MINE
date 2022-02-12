@@ -207,7 +207,7 @@ def nwj(logits, labels, clip):
 def retuba(logits, labels, clip, alpha, bias):
     t, et, joint, marginal = _tuba(logits, labels, clip)
     reg = alpha * torch.nn.functional.smooth_l1_loss(
-        et, torch.FloatTensor(bias).to(et.device))
+        et, torch.tensor(bias).float().to(et.device))
     return _regularized_loss(1 + t - et, reg), joint, marginal
 
 
