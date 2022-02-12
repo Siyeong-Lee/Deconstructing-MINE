@@ -105,6 +105,13 @@ def _masked_dot_products(logits, labels):
     return torch.masked_select(dot_mat, joint_mask), torch.masked_select(dot_mat, marginal_mask)
 
 
+def _regularized_loss(mi, reg):
+    loss = mi - reg
+    with torch.no_grad():
+        mi_loss = mi - loss
+    return loss + mi_loss
+
+
 def _mine(logits, labels):
     batch_size, _ = logits.shape
     joint, marginal = _masked_dot_products(logits, labels)
@@ -113,7 +120,7 @@ def _mine(logits, labels):
     return t, et, joint, marginal
 
 
-def infonce(logits, labels):
+def _infonce(logits, labels):
     batch_size, _ = logits.shape
     marginal_mask = ~torch.eye(len(labels), dtype=torch.bool, device=labels.device)
     joint_mask = (labels[:, None] == labels) & marginal_mask
@@ -127,24 +134,18 @@ def infonce(logits, labels):
     et_select = joint_mask.sum(1).float()
     et = torch.dot(et_all, et_select) / et_select.sum()
 
-    return t - et, joints, marginals
+    return t, et, joints, marginals
+
+
+def infonce(logits, labels):
+    t, et, joint, marginal = _infonce(logits, labels)
+    return t - et, joint, marginal
 
 
 def reinfonce(logits, labels, alpha, bias):
-    batch_size, _ = logits.shape
-    marginal_mask = ~torch.eye(len(labels), dtype=torch.bool, device=labels.device)
-    joint_mask = (labels[:, None] == labels) & marginal_mask
-    dot_mat = torch.matmul(logits, logits.T)
-
-    joints = torch.masked_select(dot_mat, joint_mask)
-    t = joints.mean()
-
-    marginals = torch.masked_select(dot_mat, marginal_mask)
-    et_all = torch.logsumexp(marginals.reshape((batch_size, batch_size - 1)), dim=1) - np.log(batch_size - 1)
-    et_select = joint_mask.sum(1).float()
-    et = torch.dot(et_all, et_select) / et_select.sum()
-
-    return t - et - alpha * torch.square(et - bias), joints, marginals
+    t, et, joint, marginal = _infonce(logits, labels)
+    reg = alpha * torch.square(et - bias)
+    return _regularized_loss(t - et, reg), joint, marginal
 
 
 def mine(logits, labels):
@@ -160,70 +161,76 @@ def remine_j(logits, labels):
 def remine(logits, labels, alpha, bias):
     t, et, joint, marginal = _mine(logits, labels)
     reg = alpha * torch.square(et - bias)
-    loss = t - et - reg
-
-    with torch.no_grad():
-        mi = t - et
-        mi_loss = mi - loss
-
-    return loss + mi_loss, joint, marginal
+    return _regularized_loss(t - et, reg), joint, marginal
 
 
-def smile(logits, labels, clip):
+def _smile(logits, labels, clip):
     batch_size, _ = logits.shape
     joint, marginal = _masked_dot_products(logits, labels)
     t = torch.clamp(joint, -clip, clip).mean()
     et = torch.logsumexp(torch.clamp(marginal, -clip, clip), dim=0) - np.log(batch_size * (batch_size - 1))
+    return t, et, joint, marginal
+
+
+def smile(logits, labels, clip):
+    t, et, joint, marginal = _smile(logits, labels, clip)
     return t - et, joint, marginal
 
 
 def resmile(logits, labels, clip, alpha, bias):
-    batch_size, _ = logits.shape
+    t, et, joint, marginal = _smile(logits, labels, clip)
+    _, reg_et, _, _ = _mine(logits, labels)
+    reg = alpha * torch.square(reg_et - bias)
+    return _regularized_loss(t - et, reg), joint, marginal
+
+
+def _tuba(logits, labels, clip):
     joint, marginal = _masked_dot_products(logits, labels)
-    t = torch.clamp(joint, -clip, clip).mean()
-    et = torch.logsumexp(torch.clamp(marginal, -clip, clip), dim=0) - np.log(batch_size * (batch_size - 1))
-    return t - et - alpha * torch.square(et - bias), joint, marginal
+    if clip > 0.0:
+        joint = torch.clip(joint, -clip, clip)
+        marginal = torch.clip(marginal, -clip, clip)
 
-
-def remine_l1(logits, labels, alpha):
-    t, et, joint, marginal = _mine(logits, labels)
-    return t - et - alpha * torch.abs(et), joint, marginal
-
-
-def tuba(logits, labels):
-    joint, marginal = _masked_dot_products(logits, labels)
     t = joint.mean()
     et = marginal.exp().mean()
+    return t, et, joint, marginal
+
+
+def tuba(logits, labels, clip):
+    t, et, joint, marginal = _tuba(logits, labels, clip)
     return 1 + t - et, joint, marginal
 
 
-def nwj(logits, labels):
-    return tuba(logits - 1.0, labels)
+def nwj(logits, labels, clip):
+    return tuba(logits - 1.0, labels, clip)
 
 
-def retuba(logits, labels, alpha, bias):
-    joint, marginal = _masked_dot_products(logits, labels)
-    t = joint.mean()
-    et = marginal.exp().mean()
-    return 1 + t - et - alpha * torch.square(et - bias), joint, marginal
+def retuba(logits, labels, clip, alpha, bias):
+    t, et, joint, marginal = _tuba(logits, labels, clip)
+    reg = alpha * torch.nn.functional.smooth_l1_loss(
+        et, torch.FloatTensor(bias).to(et.device))
+    return _regularized_loss(1 + t - et, reg), joint, marginal
 
 
-def renwj(logits, labels, alpha, bias):
-    return retuba(logits - 1.0, labels, alpha, bias)
+def renwj(logits, labels, clip, alpha, bias):
+    return retuba(logits - 1.0, labels, clip, alpha, bias)
 
 
-def js(logits, labels):
+def _js(logits, labels):
     joint, marginal = _masked_dot_products(logits, labels)
     t = -torch.nn.functional.softplus(-joint).mean()
     et = torch.nn.functional.softplus(marginal).mean()
+    return t, et, joint, marginal
+
+
+def js(logits, labels):
+    t, et, joint, marginal = _js(logits, labels)
     return t - et, joint, marginal
 
 
 def rejs(logits, labels, alpha, bias):
-    joint, marginal = _masked_dot_products(logits, labels)
-    t = -torch.nn.functional.softplus(-joint).mean()
-    et = torch.nn.functional.softplus(marginal).mean()
-    return t - et - alpha * torch.square(et - bias), joint, marginal
+    t, et, joint, marginal = _js(logits, labels)
+    reg = alpha * torch.square(et - bias)
+    return _regularized_loss(t - et, reg), joint, marginal
 
 
 def mix(logits, labels, estimator, trainer):
@@ -237,72 +244,22 @@ def mix(logits, labels, estimator, trainer):
 criterions = {
     'mine': mine,
     'infonce': infonce,
-    'remine_l1-0.01': partial(remine_l1, alpha=0.01),
-    'remine_l1-0.1': partial(remine_l1, alpha=0.1),
-    'remine_l1-1.0': partial(remine_l1, alpha=1.0),
-    'smile-1.0': partial(smile, clip=1.0),
-    'smile-10.0': partial(smile, clip=10.0),
-    'reinfonce-0.1': partial(reinfonce, alpha=0.1, bias=0.0),
-    'reinfonce-1.0': partial(reinfonce, alpha=1.0, bias=0.0),
-    'renwj-0.1': partial(renwj, alpha=0.1, bias=1.0),
-    'renwj-1.0': partial(renwj, alpha=1.0, bias=1.0),
-    'resmile-1.0-0.1': partial(resmile, clip=1.0, alpha=0.1, bias=0.0),
-    'resmile-1.0-1.0': partial(resmile, clip=1.0, alpha=1.0, bias=0.0),
-    'resmile-10.0-0.1': partial(resmile, clip=10.0, alpha=0.1, bias=0.0),
-    'resmile-10.0-1.0': partial(resmile, clip=10.0, alpha=1.0, bias=0.0),
-    'rejs-0.1': partial(rejs, alpha=0.1, bias=1.0),
-    'rejs-1.0': partial(rejs, alpha=1.0, bias=1.0),
-    'tuba': tuba,
-    'nwj': nwj,
+    'smile_t1': partial(smile, clip=1.0),
+    'smile_t10': partial(smile, clip=10.0),
+    'tuba': partial(tuba, clip=0.0),
+    'nwj': partial(nwj, clip=0.0),
     'js': js,
-    'nwj_js': partial(mix, estimator=nwj, trainer=js),
-    'smile-1.0_js': partial(mix,
-                            estimator=partial(smile, clip=1.0),
-                            trainer=js),
-    'smile-10.0_js': partial(mix,
-                             estimator=partial(smile, clip=10.0),
-                             trainer=js),
-    'smile-1.0_remine-0.1': partial(mix,
-                                    estimator=partial(smile, clip=1.0),
-                                    trainer=partial(remine, alpha=0.1, bias=0.0)),
-    'smile-1.0_remine-1.0': partial(mix,
-                                    estimator=partial(smile, clip=1.0),
-                                    trainer=partial(remine, alpha=1.0, bias=0.0)),
-    'smile-10.0_remine-0.1': partial(mix,
-                                     estimator=partial(smile, clip=10.0),
-                                     trainer=partial(remine, alpha=0.1, bias=0.0)),
-    'smile-10.0_remine-1.0': partial(mix,
-                                     estimator=partial(smile, clip=10.0),
-                                     trainer=partial(remine, alpha=1.0, bias=0.0)),
-    'remine_j-0.001': partial(mix,
-                              estimator=remine_j,
-                              trainer=partial(remine, alpha=0.001, bias=0.0)),
-    'remine_j-0.01': partial(mix,
-                             estimator=remine_j,
-                             trainer=partial(remine, alpha=0.01, bias=0.0)),
-    'remine_j-0.1': partial(mix,
-                            estimator=remine_j,
-                            trainer=partial(remine, alpha=0.1, bias=0.0)),
-    'remine_j-0.5': partial(mix,
-                            estimator=remine_j,
-                            trainer=partial(remine, alpha=0.5, bias=0.0)),
-    'remine_j-1.0': partial(mix,
-                            estimator=remine_j,
-                            trainer=partial(remine, alpha=1.0, bias=0.0)),
-    'remine_j-10.0': partial(mix,
-                             estimator=remine_j,
-                             trainer=partial(remine, alpha=10.0, bias=0.0)),
-    'remine_j_l1-0.1': partial(mix,
-                               estimator=remine_j,
-                               trainer=partial(remine_l1, alpha=0.1)),
-    'remine_j_l1-1.0': partial(mix,
-                               estimator=remine_j,
-                               trainer=partial(remine_l1, alpha=1.0)),
+    'nwjjs': partial(mix, estimator=nwj, trainer=js),
 }
 
 for alpha in (0.1, 0.01, 0.001):
-    for bias in (0, -5, -10, -15):
-        criterions[f'remine_a{alpha}_b{-bias}'] = partial(remine, alpha=alpha, bias=bias)
+    criterions[f'remine_a{alpha}_b0'] = partial(remine, alpha=alpha, bias=0)
+    criterions[f'reinfonce_a{alpha}_b0'] = partial(reinfonce, alpha=alpha, bias=0)
+    criterions[f'resmile_t10_a{alpha}_b0'] = partial(resmile, clip=10, alpha=alpha, bias=0)
+    criterions[f'renwj_t10_a{alpha}_b0.5'] = partial(renwj, clip=10, alpha=alpha, bias=0.5)
+    criterions[f'retuba_t10_a{alpha}_b0.5'] = partial(retuba, clip=10, alpha=alpha, bias=0.5)
+    criterions[f'rejs_a{alpha}_b0'] = partial(rejs, alpha=alpha, bias=0)
+    criterions[f'renwjjs_a{alpha}_b0'] = partial(mix, estimator=nwj, trainer=partial(rejs, alpha=alpha, bias=0)),
 
 
 class NumpyHistorySaver:
@@ -352,7 +309,7 @@ if __name__ == '__main__':
     root_dir = Path(f'self_exp_re/model={args.model}/dataset={args.dataset}/remove_fc={args.remove_fc}/optimizer={args.optimizer}/batch_size={args.batch_size}/lr={args.lr}/seed={args.seed}')
     root_dir.mkdir(parents=True, exist_ok=True)
 
-    if (root_dir / '{args.loss}.pth').exists():
+    if (root_dir / f'{args.loss}.pth').exists():
         print(f'{root_dir}: Results already exists')
         sys.exit(0)
 
