@@ -118,16 +118,18 @@ def _smile(logits, labels, clip):
     return t, et, joints, marginals
 
 
-def _tuba(logits, labels, clip):
+def _tuba(logits, labels, clip, a_y):
     _, classes = logits.shape
-    joints = torch.masked_select(logits, _mask(labels, classes))
+    joint = torch.masked_select(logits, _mask(labels, classes))
+    marginal = logits.flatten()
     if clip > 0.0:
-        t = torch.clip(joints, -clip, clip).mean()
-        et = torch.clip(logits, -clip, clip).exp().mean()
+        t = torch.clip(joint, -clip, clip).mean()
+        et = torch.clip(marginal, -clip, clip).exp().mean() / a_y + np.log(a_y) - 1.0
     else:
-        t = torch.mean(joints)
-        et = logits.exp().mean()
-    return t, et, joints, logits.flatten()
+        t = joint.mean()
+        et = marginal.exp().mean() / a_y + np.log(a_y) - 1.0
+
+    return t, et, joint, marginal
 
 
 def _js(logits, labels):
@@ -178,24 +180,32 @@ def resmile(logits, labels, clip, alpha, bias):
     return _regularized_loss(t - et, reg), joint, marginal
 
 
-def tuba(logits, labels, clip):
-    t, et, joint, marginal = _tuba(logits, labels, clip)
-    return 1 + t - et, joint, marginal
+def tuba(logits, labels):
+    t, et, joint, marginal = _tuba(logits, labels, 0.0, 1.0)
+    return t - et, joint, marginal
 
 
-def nwj(logits, labels, clip):
-    return tuba(logits - 1.0, labels, clip)
+def nwj(logits, labels):
+    t, et, joint, marginal = _tuba(logits, labels, 0.0, np.e)
+    return t - et, joint, marginal
 
 
-def retuba(logits, labels, clip, alpha, bias):
-    t, et, joint, marginal = _tuba(logits, labels, clip)
-    reg = alpha * torch.nn.functional.smooth_l1_loss(
-        et, torch.tensor(bias).float().to(et.device))
-    return _regularized_loss(1 + t - et, reg), joint, marginal
+def retuba(logits, labels, clip, alpha):
+    t, et, joint, marginal = _tuba(logits, labels, clip, 1.0)
+    _, _, _, reg_marginal = _tuba(logits, labels, 0.0, 1.0)
+    reg = alpha * torch.square(
+        torch.logsumexp(reg_marginal, dim=0) - np.log(reg_marginal.shape[0])
+    )
+    return _regularized_loss(t - et, reg), joint, marginal
 
 
-def renwj(logits, labels, clip, alpha, bias):
-    return retuba(logits - 1.0, labels, clip, alpha, bias)
+def renwj(logits, labels, clip, alpha):
+    t, et, joint, marginal = _tuba(logits, labels, clip, np.e)
+    _, _, _, reg_marginal = _tuba(logits, labels, 0.0, np.e)
+    reg = alpha * torch.square(
+        torch.logsumexp(reg_marginal, dim=0) - np.log(reg_marginal.shape[0])
+    )
+    return _regularized_loss(t - et, reg), joint, marginal
 
 
 def js(logits, labels):
@@ -230,8 +240,8 @@ criterions = {
     'infonce': infonce,
     'smile_t1': partial(smile, clip=1.0),
     'smile_t10': partial(smile, clip=10.0),
-    'tuba': partial(tuba, clip=0.0),
-    'nwj': partial(nwj, clip=0.0),
+    'tuba': tuba,
+    'nwj': nwj,
     'js': js,
     'nwjjs': nwjjs,
 }
@@ -241,8 +251,8 @@ for alpha in (0.1, 0.01, 0.001):
     criterions[f'remine_a{alpha}_b0'] = partial(remine, alpha=alpha, bias=0)
     criterions[f'reinfonce_a{alpha}_b0'] = partial(reinfonce, alpha=alpha, bias=0)
     criterions[f'resmile_t10_a{alpha}_b0'] = partial(resmile, clip=10, alpha=alpha, bias=0)
-    criterions[f'renwj_t10_a{alpha}_b0.5'] = partial(renwj, clip=10, alpha=alpha, bias=0.5)
-    criterions[f'retuba_t10_a{alpha}_b0.5'] = partial(retuba, clip=10, alpha=alpha, bias=0.5)
+    criterions[f'renwj_t10_a{alpha}'] = partial(renwj, clip=10, alpha=alpha)
+    criterions[f'retuba_t10_a{alpha}'] = partial(retuba, clip=10, alpha=alpha)
     criterions[f'rejs_a{alpha}_b0'] = partial(rejs, alpha=alpha, bias=0)
     criterions[f'renwjjs_t10_a{alpha}_b0'] = partial(renwjjs, alpha=alpha, bias=0)
 
