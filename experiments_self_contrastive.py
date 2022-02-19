@@ -187,11 +187,12 @@ def resmile(logits, labels, clip, alpha, bias):
 def _tuba(logits, labels, clip):
     joint, marginal = _masked_dot_products(logits, labels)
     if clip > 0.0:
-        joint = torch.clip(joint, -clip, clip)
-        marginal = torch.clip(marginal, -clip, clip)
+        t = torch.clip(joint, -clip, clip).mean()
+        et = torch.clip(marginal, -clip, clip).exp().mean()
+    else:
+        t = joint.mean()
+        et = marginal.exp().mean()
 
-    t = joint.mean()
-    et = marginal.exp().mean()
     return t, et, joint, marginal
 
 
@@ -233,12 +234,20 @@ def rejs(logits, labels, alpha, bias):
     return _regularized_loss(t - et, reg), joint, marginal
 
 
-def mix(logits, labels, estimator, trainer):
-    mi = estimator(logits, labels)
-    grad = trainer(logits, labels)
+def nwjjs(logits, labels):
+    loss, joint, marginal = js(logits, labels)
+    mi, _, _ = nwj(logits, labels, 0)
     with torch.no_grad():
-        mi_grad = mi - grad
-    return grad + mi_grad
+        mi_loss = mi - loss
+    return loss + mi_loss, joint, marginal
+
+
+def renwjjs(logits, labels, alpha, bias, clip):
+    loss, joint, marginal = rejs(logits, labels, alpha, bias)
+    mi, _, _ = nwj(logits, labels, clip)
+    with torch.no_grad():
+        mi_loss = mi - loss
+    return loss + mi_loss, joint, marginal
 
 
 criterions = {
@@ -249,7 +258,7 @@ criterions = {
     'tuba': partial(tuba, clip=0.0),
     'nwj': partial(nwj, clip=0.0),
     'js': js,
-    'nwjjs': partial(mix, estimator=nwj, trainer=js),
+    'nwjjs': nwjjs,
 }
 
 for alpha in (0.1, 0.01, 0.001):
@@ -259,7 +268,7 @@ for alpha in (0.1, 0.01, 0.001):
     criterions[f'renwj_t10_a{alpha}_b0.5'] = partial(renwj, clip=10, alpha=alpha, bias=0.5)
     criterions[f'retuba_t10_a{alpha}_b0.5'] = partial(retuba, clip=10, alpha=alpha, bias=0.5)
     criterions[f'rejs_a{alpha}_b0'] = partial(rejs, alpha=alpha, bias=0)
-    criterions[f'renwjjs_a{alpha}_b0'] = partial(mix, estimator=nwj, trainer=partial(rejs, alpha=alpha, bias=0)),
+    criterions[f'renwjjs_t10_a{alpha}_b0'] = partial(renwjjs, alpha=alpha, bias=0)
 
 
 class NumpyHistorySaver:
