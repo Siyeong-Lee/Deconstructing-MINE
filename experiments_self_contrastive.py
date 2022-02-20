@@ -127,12 +127,16 @@ def _infonce(logits, labels):
     dot_mat = torch.matmul(logits, logits.T)
 
     joints = torch.masked_select(dot_mat, joint_mask)
-    t = joints.mean()
-
     marginals = torch.masked_select(dot_mat, marginal_mask)
-    et_all = torch.logsumexp(marginals.reshape((batch_size, batch_size - 1)), dim=1) - np.log(batch_size - 1)
-    et_select = joint_mask.sum(1).float()
-    et = torch.dot(et_all, et_select) / et_select.sum()
+
+    if joint_mask.sum() > 0:
+        t = joints.mean()
+        et_all = torch.logsumexp(marginals.reshape((batch_size, batch_size - 1)), dim=1) - np.log(batch_size - 1)
+        et_select = joint_mask.sum(1).float()
+        et = torch.dot(et_all, et_select) / et_select.sum()
+    else:
+        t = 0.0
+        et = 0.0
 
     return t, et, joints, marginals
 
@@ -244,7 +248,7 @@ def rejs(logits, labels, alpha, bias):
 
 def nwjjs(logits, labels):
     loss, joint, marginal = js(logits, labels)
-    mi, _, _ = nwj(logits, labels, 0)
+    mi, _, _ = nwj(logits, labels)
     with torch.no_grad():
         mi_loss = mi - loss
     return loss + mi_loss, joint, marginal
@@ -252,7 +256,7 @@ def nwjjs(logits, labels):
 
 def renwjjs(logits, labels, alpha, bias, clip):
     loss, joint, marginal = rejs(logits, labels, alpha, bias)
-    mi, _, _ = nwj(logits, labels, clip)
+    mi, _, _ = nwj(logits, labels)
     with torch.no_grad():
         mi_loss = mi - loss
     return loss + mi_loss, joint, marginal
@@ -275,8 +279,8 @@ for alpha in (0.1, 0.01, 0.001):
     criterions[f'resmile_t10_a{alpha}_b0'] = partial(resmile, clip=10, alpha=alpha, bias=0)
     criterions[f'renwj_t10_a{alpha}'] = partial(renwj, clip=10, alpha=alpha)
     criterions[f'retuba_t10_a{alpha}'] = partial(retuba, clip=10, alpha=alpha)
-    criterions[f'rejs_a{alpha}_b0'] = partial(rejs, alpha=alpha, bias=0)
-    criterions[f'renwjjs_t10_a{alpha}_b0'] = partial(renwjjs, alpha=alpha, bias=0)
+    criterions[f'rejs_a{alpha}_b1'] = partial(rejs, alpha=alpha, bias=1)
+    criterions[f'renwjjs_a{alpha}_b1'] = partial(renwjjs, alpha=alpha, bias=1, clip=0.0)
 
 
 class NumpyHistorySaver:
@@ -371,6 +375,8 @@ if __name__ == '__main__':
             # forward + backward + optimize
             outputs = net(inputs)
             loss, joints, marginals = criterion(outputs, labels)
+            if type(loss) == float:
+                continue
             (-loss).backward()
             optimizer.step()
 

@@ -108,7 +108,7 @@ def _infonce(logits, labels):
     _, classes = logits.shape
     joints = torch.masked_select(logits, _mask(labels, classes))
     t = joints.mean()
-    et = logits.logsumexp(dim=1).mean() + np.log(classes)
+    et = logits.logsumexp(dim=1).mean() - np.log(classes)
     return t, et, joints, logits.flatten()
 
 
@@ -221,7 +221,7 @@ def rejs(logits, labels, alpha, bias):
 
 def nwjjs(logits, labels):
     loss, joint, marginal = js(logits, labels)
-    mi, _, _ = nwj(logits, labels, 0)
+    mi, _, _ = nwj(logits, labels)
     with torch.no_grad():
         mi_loss = mi - loss
     return loss + mi_loss, joint, marginal
@@ -229,7 +229,7 @@ def nwjjs(logits, labels):
 
 def renwjjs(logits, labels, alpha, bias, clip):
     loss, joint, marginal = rejs(logits, labels, alpha, bias)
-    mi, _, _ = nwj(logits, labels, clip)
+    mi, _, _ = nwj(logits, labels)
     with torch.no_grad():
         mi_loss = mi - loss
     return loss + mi_loss, joint, marginal
@@ -253,8 +253,8 @@ for alpha in (0.1, 0.01, 0.001):
     criterions[f'resmile_t10_a{alpha}_b0'] = partial(resmile, clip=10, alpha=alpha, bias=0)
     criterions[f'renwj_t10_a{alpha}'] = partial(renwj, clip=10, alpha=alpha)
     criterions[f'retuba_t10_a{alpha}'] = partial(retuba, clip=10, alpha=alpha)
-    criterions[f'rejs_a{alpha}_b0'] = partial(rejs, alpha=alpha, bias=0)
-    criterions[f'renwjjs_t10_a{alpha}_b0'] = partial(renwjjs, alpha=alpha, bias=0)
+    criterions[f'rejs_a{alpha}_b1'] = partial(rejs, alpha=alpha, bias=1.0)
+    criterions[f'renwjjs_a{alpha}_b1'] = partial(renwjjs, alpha=alpha, bias=1.0, clip=0.0)
 
 
 class NumpyHistorySaver:
