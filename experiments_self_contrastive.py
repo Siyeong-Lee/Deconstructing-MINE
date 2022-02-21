@@ -148,6 +148,8 @@ def infonce(logits, labels):
 
 def reinfonce(logits, labels, alpha, bias):
     t, et, joint, marginal = _infonce(logits, labels)
+    if type(t) == float:
+        return 0.0, joint, marginal
     reg = alpha * torch.square(et - bias)
     return _regularized_loss(t - et, reg), joint, marginal
 
