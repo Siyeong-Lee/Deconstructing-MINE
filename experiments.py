@@ -81,8 +81,8 @@ def tuba_lower_bound(scores, a_y=1.0):
   return joint_term -  marg_term
 
 def retuba_lower_bound(scores, a_y=1.0):
-  joint_term = tf.reduce_mean(tf.linalg.diag_part(scores))
-  marg_term = tf.exp(reduce_logmeanexp_nodiag(scores)) / a_y + np.log(a_y) - 1.0
+  joint_term = tf.reduce_mean(tf.linalg.diag_part(tf.clip_by_value(scores, -10, 10)))
+  marg_term = tf.exp(reduce_logmeanexp_nodiag(tf.clip_by_value(scores, -10, 10))) / a_y + np.log(a_y) - 1.0
   mi = joint_term -  marg_term
   reg = tf.math.scalar_mul(1.0, tf.math.square(
     reduce_logmeanexp_nodiag(scores)
