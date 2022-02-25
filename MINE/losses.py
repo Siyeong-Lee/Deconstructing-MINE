@@ -89,7 +89,7 @@ class renwj_loss(_base_loss):
 
 
 
-class imine_loss(_base_loss):
+class remine_loss(_base_loss):
     def __init__(self, target_value=0, distance_measure='l2', regularizer_weight=1.0):
         super().__init__()
         self.target_value = target_value
