@@ -2,7 +2,7 @@
 ## Environment
 - Python 3.7.4
 - pip-20.1.1
-- Additional packages can be located in `requirements.txt`
+- Additional packages can be located in `requirements.txt` and `benchmark.requirements.txt` (Only for the `experiments_self_contrastive.py` and `experiments_classification.py`.
 
 ## How to reproduce experiments
 ### One-hot experiments
