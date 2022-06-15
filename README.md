@@ -1,4 +1,7 @@
-# Regularized MINE
+# Combating the Instability of Mutual Information-based Losses via Regularization
+- Accepted to UAI 2022
+- https://openreview.net/forum?id=HFbf9PIjqgq
+
 ## Environment
 - Python 3.7.4
 - pip-20.1.1
