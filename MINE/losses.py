@@ -34,6 +34,7 @@ class _base_loss:
 
 class smile_loss(_base_loss):
     def __init__(self, clamp_val=5):
+        super().__init__()
         self.clamp_val = clamp_val
         
     def __call__(self, joint, marginal):
@@ -65,14 +66,32 @@ class nwj_loss(_base_loss):
         et = _mean(_exp(marginal - 1.0))
         mi = t - et
         loss = -mi
-        
+
         self.t, self.et, self.mi, self.value = t.item(), et.item(), mi.item(), loss.item()
 
         return -mi
 
 
-class imine_loss(_base_loss):
+class renwj_loss(_base_loss):
+    def __init__(self, regularizer_weight=1.0):
+        super().__init__()
+        self.regularizer_weight = regularizer_weight
+    
+    def __call__(self, joint, marginal):
+        t = _mean(joint)
+        et = _mean(_exp(marginal-1))
+        mi = t - et
+        loss = -mi + self.regularizer_weight * torch.square(_log_mean_exp(marginal))
+
+        self.t, self.et, self.mi, self.value = t.item(), et.item(), mi.item(), loss.item()
+
+        return loss
+
+
+
+class remine_loss(_base_loss):
     def __init__(self, target_value=0, distance_measure='l2', regularizer_weight=1.0):
+        super().__init__()
         self.target_value = target_value
         self.regularizer_weight = regularizer_weight
         if distance_measure == 'l2':
@@ -81,11 +100,6 @@ class imine_loss(_base_loss):
             self.distance_function = _l1_distance
         else:
             raise NotImplementedError(f'No such distance_measure as {distance_measure}')
-        
-        self.t = None
-        self.et = None
-        self.mi = None
-        self.value = None
 
     def __call__(self, joint, marginal):
         t = _mean(joint)
@@ -100,6 +114,7 @@ class imine_loss(_base_loss):
 
 class tuba_loss(_base_loss):
     def __init__(self, log_baseline=None):
+        super().__init__()
         self.log_baseline = log_baseline
    
     def __call__(self, joint, marginal):
@@ -115,28 +130,3 @@ class tuba_loss(_base_loss):
         self.t, self.et, self.mi, self.value = t.item(), et.item(), mi.item(), loss.item()
         
         return -mi
-
-class classification_loss(_base_loss):
-    def __init__(self):
-        self.eps = 1e-8
-
-    def __call__(self, joint, marginal):        
-        pos_label_pred_p = F.sigmoid(joint)        
-        rn_est_p = (pos_label_pred_p + self.eps / 1-pos_label_pred_p-self.eps) 
-        finp_p = torch.log(torch.abs(rn_est_p))
-
-        pos_label_pred_q = F.sigmoid(marginal)
-        rn_est_q = (pos_label_pred_q + self.eps / 1-pos_label_pred_q-self.eps) 
-        finp_q = torch.log(torch.abs(rn_est_q))
-
-        t = _mean(finp_p) 
-        et = _mean(_exp(finp_q))
-        mi = t - et
-   
-        ones  = torch.ones_like(joint).to(joint.device)
-        zeros = torch.zeros_like(marginal).to(marginal.device)        
-        loss = F.cross_entropy(joint, ones) + F.corss_etropy(marginal, zeros)
-
-        self.t, self.et, self.mi, self.value = t.item(), et.item(), mi.item(), loss.item()
-        
-        return loss

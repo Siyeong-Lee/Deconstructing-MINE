@@ -9,6 +9,7 @@ import json
 import tqdm
 import random
 import sys
+from pathlib import Path
 
 
 class ModifiedImageNet(torchvision.datasets.ImageNet):
@@ -33,10 +34,10 @@ available_datasets = {
 
 
 def set_seed(seed):
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    torch.cuda.manual_seed(args.seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
 
 
@@ -104,149 +105,212 @@ def _masked_dot_products(logits, labels):
     return torch.masked_select(dot_mat, joint_mask), torch.masked_select(dot_mat, marginal_mask)
 
 
+def _regularized_loss(mi, reg):
+    loss = mi - reg
+    with torch.no_grad():
+        mi_loss = mi - loss
+    return loss + mi_loss
+
+
 def _mine(logits, labels):
     batch_size, _ = logits.shape
     joint, marginal = _masked_dot_products(logits, labels)
     t = joint.mean()
     et = torch.logsumexp(marginal, dim=0) - np.log(batch_size * (batch_size - 1))
-    return t, et
+    return t, et, joint, marginal
 
 
-def infonce(logits, labels):
+def _infonce(logits, labels):
     batch_size, _ = logits.shape
     marginal_mask = ~torch.eye(len(labels), dtype=torch.bool, device=labels.device)
     joint_mask = (labels[:, None] == labels) & marginal_mask
     dot_mat = torch.matmul(logits, logits.T)
 
     joints = torch.masked_select(dot_mat, joint_mask)
-    t = joints.mean()
-
     marginals = torch.masked_select(dot_mat, marginal_mask)
-    et_all = torch.logsumexp(marginals.reshape((batch_size, batch_size - 1)), dim=1) - np.log(batch_size - 1)
-    et_select = joint_mask.sum(1).float()
-    et = torch.dot(et_all, et_select) / et_select.sum()
 
-    return t - et
+    if joint_mask.sum() > 0:
+        t = joints.mean()
+        et_all = torch.logsumexp(marginals.reshape((batch_size, batch_size - 1)), dim=1) - np.log(batch_size - 1)
+        et_select = joint_mask.sum(1).float()
+        et = torch.dot(et_all, et_select) / et_select.sum()
+    else:
+        t = 0.0
+        et = 0.0
+
+    return t, et, joints, marginals
+
+
+def infonce(logits, labels):
+    t, et, joint, marginal = _infonce(logits, labels)
+    return t - et, joint, marginal
+
+
+def reinfonce(logits, labels, alpha, bias):
+    t, et, joint, marginal = _infonce(logits, labels)
+    if type(t) == float:
+        return 0.0, joint, marginal
+    reg = alpha * torch.square(et - bias)
+    return _regularized_loss(t - et, reg), joint, marginal
 
 
 def mine(logits, labels):
-    t, et = _mine(logits, labels)
-    return t - et
+    t, et, joint, marginal = _mine(logits, labels)
+    return t - et, joint, marginal
 
 
 def remine_j(logits, labels):
-    t, _ = _mine(logits, labels)
-    return t
+    t, _, joint, marginal = _mine(logits, labels)
+    return t, joint, marginal
 
 
 def remine(logits, labels, alpha, bias):
-    t, et = _mine(logits, labels)
-    return t - et - alpha * torch.square(et - bias)
+    t, et, joint, marginal = _mine(logits, labels)
+    reg = alpha * torch.square(et - bias)
+    return _regularized_loss(t - et, reg), joint, marginal
 
 
-def smile(logits, labels, clip):
+def _smile(logits, labels, clip):
     batch_size, _ = logits.shape
     joint, marginal = _masked_dot_products(logits, labels)
     t = torch.clamp(joint, -clip, clip).mean()
     et = torch.logsumexp(torch.clamp(marginal, -clip, clip), dim=0) - np.log(batch_size * (batch_size - 1))
-    return t - et
+    return t, et, joint, marginal
 
 
-def remine_l1(logits, labels, alpha):
-    t, et = _mine(logits, labels)
-    return t - et - alpha * torch.abs(et)
+def smile(logits, labels, clip):
+    t, et, joint, marginal = _smile(logits, labels, clip)
+    return t - et, joint, marginal
+
+
+def resmile(logits, labels, clip, alpha, bias):
+    t, et, joint, marginal = _smile(logits, labels, clip)
+    _, reg_et, _, _ = _mine(logits, labels)
+    reg = alpha * torch.square(reg_et - bias)
+    return _regularized_loss(t - et, reg), joint, marginal
+
+
+def _tuba(logits, labels, clip, a_y):
+    joint, marginal = _masked_dot_products(logits, labels)
+    if clip > 0.0:
+        t = torch.clip(joint, -clip, clip).mean()
+        et = torch.clip(marginal, -clip, clip).exp().mean() / a_y + np.log(a_y) - 1.0
+    else:
+        t = joint.mean()
+        et = marginal.exp().mean() / a_y + np.log(a_y) - 1.0
+
+    return t, et, joint, marginal
 
 
 def tuba(logits, labels):
-    joint, marginal = _masked_dot_products(logits, labels)
-    t = joint.mean()
-    et = marginal.exp().mean()
-    return 1 + t - et
+    t, et, joint, marginal = _tuba(logits, labels, 0.0, 1.0)
+    return t - et, joint, marginal
 
 
 def nwj(logits, labels):
-    return tuba(logits - 1.0, labels)
+    t, et, joint, marginal = _tuba(logits, labels, 0.0, np.e)
+    return t - et, joint, marginal
 
 
-def js(logits, labels):
+def retuba(logits, labels, clip, alpha):
+    t, et, joint, marginal = _tuba(logits, labels, clip, 1.0)
+    _, _, _, reg_marginal = _tuba(logits, labels, 0.0, 1.0)
+    reg = alpha * torch.square(
+        torch.logsumexp(reg_marginal, dim=0) - np.log(reg_marginal.shape[0])
+    )
+    return _regularized_loss(t - et, reg), joint, marginal
+
+
+def renwj(logits, labels, clip, alpha):
+    t, et, joint, marginal = _tuba(logits, labels, clip, np.e)
+    _, _, _, reg_marginal = _tuba(logits, labels, 0.0, np.e)
+    reg = alpha * torch.square(
+        torch.logsumexp(reg_marginal, dim=0) - np.log(reg_marginal.shape[0])
+    )
+    return _regularized_loss(t - et, reg), joint, marginal
+
+
+def _js(logits, labels):
     joint, marginal = _masked_dot_products(logits, labels)
     t = -torch.nn.functional.softplus(-joint).mean()
     et = torch.nn.functional.softplus(marginal).mean()
-    return t - et
+    return t, et, joint, marginal
 
 
-def mix(logits, labels, estimator, trainer):
-    mi = estimator(logits, labels)
-    grad = trainer(logits, labels)
+def js(logits, labels):
+    t, et, joint, marginal = _js(logits, labels)
+    return t - et, joint, marginal
+
+
+def rejs(logits, labels, alpha, bias):
+    t, et, joint, marginal = _js(logits, labels)
+    reg = alpha * torch.square(et - bias)
+    return _regularized_loss(t - et, reg), joint, marginal
+
+
+def nwjjs(logits, labels):
+    loss, joint, marginal = js(logits, labels)
+    mi, _, _ = nwj(logits, labels)
     with torch.no_grad():
-        mi_grad = mi - grad
-    return grad + mi_grad
+        mi_loss = mi - loss
+    return loss + mi_loss, joint, marginal
+
+
+def renwjjs(logits, labels, alpha, bias, clip):
+    loss, joint, marginal = rejs(logits, labels, alpha, bias)
+    mi, _, _ = nwj(logits, labels)
+    with torch.no_grad():
+        mi_loss = mi - loss
+    return loss + mi_loss, joint, marginal
 
 
 criterions = {
     'mine': mine,
     'infonce': infonce,
-    'remine-0.001': partial(remine, alpha=0.001, bias=0.0),
-    'remine-0.005': partial(remine, alpha=0.005, bias=0.0),
-    'remine-0.01': partial(remine, alpha=0.01, bias=0.0),
-    'remine-0.05': partial(remine, alpha=0.05, bias=0.0),
-    'remine-0.1': partial(remine, alpha=0.1, bias=0.0),
-    'remine-0.5': partial(remine, alpha=0.5, bias=0.0),
-    'remine-1.0': partial(remine, alpha=1.0, bias=0.0),
-    'remine-5.0': partial(remine, alpha=5.0, bias=0.0),
-    'remine-10.0': partial(remine, alpha=10.0, bias=0.0),
-    'remine_l1-0.01': partial(remine_l1, alpha=0.01),
-    'remine_l1-0.1': partial(remine_l1, alpha=0.1),
-    'remine_l1-1.0': partial(remine_l1, alpha=1.0),
-    'smile-1.0': partial(smile, clip=1.0),
-    'smile-10.0': partial(smile, clip=10.0),
+    'smile_t1': partial(smile, clip=1.0),
+    'smile_t10': partial(smile, clip=10.0),
     'tuba': tuba,
     'nwj': nwj,
     'js': js,
-    'nwj_js': partial(mix, estimator=nwj, trainer=js),
-    'smile-1.0_js': partial(mix,
-                            estimator=partial(smile, clip=1.0),
-                            trainer=js),
-    'smile-10.0_js': partial(mix,
-                             estimator=partial(smile, clip=10.0),
-                             trainer=js),
-    'smile-1.0_remine-0.1': partial(mix,
-                                    estimator=partial(smile, clip=1.0),
-                                    trainer=partial(remine, alpha=0.1, bias=0.0)),
-    'smile-1.0_remine-1.0': partial(mix,
-                                    estimator=partial(smile, clip=1.0),
-                                    trainer=partial(remine, alpha=1.0, bias=0.0)),
-    'smile-10.0_remine-0.1': partial(mix,
-                                     estimator=partial(smile, clip=10.0),
-                                     trainer=partial(remine, alpha=0.1, bias=0.0)),
-    'smile-10.0_remine-1.0': partial(mix,
-                                     estimator=partial(smile, clip=10.0),
-                                     trainer=partial(remine, alpha=1.0, bias=0.0)),
-    'remine_j-0.001': partial(mix,
-                            estimator=remine_j,
-                            trainer=partial(remine, alpha=0.001, bias=0.0)),
-    'remine_j-0.01': partial(mix,
-                            estimator=remine_j,
-                            trainer=partial(remine, alpha=0.01, bias=0.0)),
-    'remine_j-0.1': partial(mix,
-                            estimator=remine_j,
-                            trainer=partial(remine, alpha=0.1, bias=0.0)),
-    'remine_j-0.5': partial(mix,
-                            estimator=remine_j,
-                            trainer=partial(remine, alpha=0.5, bias=0.0)),
-    'remine_j-1.0': partial(mix,
-                            estimator=remine_j,
-                            trainer=partial(remine, alpha=1.0, bias=0.0)),
-    'remine_j-10.0': partial(mix,
-                            estimator=remine_j,
-                            trainer=partial(remine, alpha=10.0, bias=0.0)),
-    'remine_j_l1-0.1': partial(mix,
-                               estimator=remine_j,
-                               trainer=partial(remine_l1, alpha=0.1)),
-    'remine_j_l1-1.0': partial(mix,
-                               estimator=remine_j,
-                               trainer=partial(remine_l1, alpha=1.0)),
+    'nwjjs': nwjjs,
 }
+
+for alpha in (0.1, 0.01, 0.001):
+    criterions[f'remine_a{alpha}_b0'] = partial(remine, alpha=alpha, bias=0)
+    criterions[f'reinfonce_a{alpha}_b0'] = partial(reinfonce, alpha=alpha, bias=0)
+    criterions[f'resmile_t10_a{alpha}_b0'] = partial(resmile, clip=10, alpha=alpha, bias=0)
+    criterions[f'renwj_t10_a{alpha}'] = partial(renwj, clip=10, alpha=alpha)
+    criterions[f'retuba_t10_a{alpha}'] = partial(retuba, clip=10, alpha=alpha)
+    criterions[f'rejs_a{alpha}_b1'] = partial(rejs, alpha=alpha, bias=1)
+    criterions[f'renwjjs_a{alpha}_b1'] = partial(renwjjs, alpha=alpha, bias=1, clip=0.0)
+
+
+class NumpyHistorySaver:
+    def __init__(self, store_type: type, directory: Path, filename: str, prev_iter: int = 0):
+        assert store_type in (float, np.ndarray)
+
+        self.directory = directory
+        self.filename = filename
+        self.store_type = store_type
+        self.iteration = prev_iter
+        self.history = []
+
+    def get_filename(self):
+        return self.directory / f'{self.filename}_{self.iteration}.npy'
+
+    def dump(self):
+        if self.store_type == float:
+            self.history = np.array(self.history)
+        elif self.store_type == np.ndarray:
+            self.history = np.concatenate(self.history)
+
+        np.save(self.get_filename(), self.history)
+        self.iteration += 1
+        self.history = []
+
+    def store(self, value):
+        assert isinstance(value, self.store_type)
+        self.history.append(value)
 
 
 if __name__ == '__main__':
@@ -258,17 +322,17 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--loss', type=str, choices=criterions.keys())
     parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--remove_fc', action='store_true')
+    parser.add_argument('--optimizer', type=str, choices=['Adam', 'SGD', 'Adagrad'], default='Adam')
+    parser.add_argument('--lr', type=float, default=0.001)
 
     args = parser.parse_args()
     print(args)
 
-    if args.batch_size != 100:
-        root_dir = f'batch_size_exp/batch_size={args.batch_size}/dataset={args.dataset}/seed={args.seed}'
-    else:
-        root_dir = f'self_exp/model={args.model}/dataset={args.dataset}/seed={args.seed}'
-    os.makedirs(root_dir, exist_ok=True)
+    root_dir = Path(f'self_exp_re/model={args.model}/dataset={args.dataset}/remove_fc={args.remove_fc}/optimizer={args.optimizer}/batch_size={args.batch_size}/lr={args.lr}/seed={args.seed}')
+    root_dir.mkdir(parents=True, exist_ok=True)
 
-    if os.path.exists(f'{root_dir}/{args.loss}.pth'):
+    if (root_dir / f'{args.loss}.pth').exists():
         print(f'{root_dir}: Results already exists')
         sys.exit(0)
 
@@ -276,29 +340,28 @@ if __name__ == '__main__':
 
     trainloader, testloader, num_classes = prepare_dataset(args)
     net = getattr(torchvision.models, args.model)(pretrained=False, num_classes=num_classes)
-
-    criterion = criterions[args.loss]
-    optimizer = torch.optim.Adam(net.parameters())
-
+    if args.remove_fc:
+        net.fc = torch.nn.Identity()
     net.to(args.device)
 
-    pretrained_path = f'{root_dir}/{args.loss}.pth'
-    loss_history_path = f'{root_dir}/{args.loss}.npy'
-    train_acc_history_path = f'{root_dir}/{args.loss}.json'
+    criterion = criterions[args.loss]
+    optimizer = getattr(torch.optim, args.optimizer)(net.parameters(), lr=args.lr)
 
-    loss_history = []
-    test_acc_history = []
+    pretrained_path = root_dir / f'{args.loss}.pth'
+    loss_saver = NumpyHistorySaver(float, Path(root_dir), f'{args.loss}_loss')
+    accuracy_saver = NumpyHistorySaver(float, Path(root_dir), f'{args.loss}_accuracy')
+    joint_saver = NumpyHistorySaver(np.ndarray, Path(root_dir), f'{args.loss}_joint')
+    marginal_saver = NumpyHistorySaver(np.ndarray, Path(root_dir), f'{args.loss}_marginal')
 
     if os.path.exists(pretrained_path):
         checkpoint = torch.load(pretrained_path, map_location='cpu')
-        model.load_state_dict(checkpoint['model_state_dict'])
+        net.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         last_epoch = checkpoint['epoch']
-        loss_history = np.load(loss_history_path).tolist()
-        test_acc_history = json.load(open(train_acc_history_path))['test_acc']
     else:
         last_epoch = -1
 
+    nan_count = 0
     for epoch in range(last_epoch + 1, args.epochs):  # loop over the dataset multiple times
         train_loop = tqdm.tqdm(enumerate(trainloader, 0))
         for i, data in train_loop:
@@ -313,20 +376,31 @@ if __name__ == '__main__':
 
             # forward + backward + optimize
             outputs = net(inputs)
-            loss = -criterion(outputs, labels)
-            loss.backward()
+            loss, joints, marginals = criterion(outputs, labels)
+            if type(loss) == float:
+                continue
+            (-loss).backward()
             optimizer.step()
 
             # print statistics
-            train_loop.set_description(f'Epoch [{epoch}/{args.epochs}] {loss.item():.4f}')
-            loss_history.append(loss.item())
+            train_loop.set_description(f'Epoch [{epoch}/{args.epochs}] ({nan_count}) {loss.item():.4f}')
+            loss_saver.store(loss.item())
+            joint_saver.store(joints.detach().cpu().numpy())
+            marginal_saver.store(marginals.detach().cpu().numpy())
 
-        test_acc_history.append(get_accuracy(net, trainloader, testloader, args.device))
+            # # Counting NaNs. If too much, break
+            # if torch.isnan(loss):
+            #     nan_count += 1
 
-        np.save(loss_history_path, np.array(loss_history))
-        json.dump({
-            'test_acc': test_acc_history,
-        }, open(train_acc_history_path, 'w'))
+        joint_saver.dump()
+        marginal_saver.dump()
+        loss_saver.dump()
+
+        accuracy_saver.store(get_accuracy(net, trainloader, testloader, args.device))
+        accuracy_saver.dump()
+
+        if nan_count >= 1000:
+            break
 
     print('Finished Training')
     torch.save({

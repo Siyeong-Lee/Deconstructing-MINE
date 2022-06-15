@@ -72,7 +72,7 @@ class MINEController:
         }, path)
 
     def load(self, path):
-        ckpt = torch.load(path)
+        ckpt = torch.load(path, map_location='cpu')
         self.network.load_state_dict(ckpt['network'])
         self.optimizer.load_state_dict(ckpt['optimizer'])
         self.history = ckpt['history']
