@@ -1,6 +1,7 @@
 # Combating the Instability of Mutual Information-based Losses via Regularization
 - Accepted to UAI 2022
 - https://openreview.net/forum?id=HFbf9PIjqgq
+- This repository is the official implementation by the authors.
 
 ## Environment
 - Python 3.7.4
