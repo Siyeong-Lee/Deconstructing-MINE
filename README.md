@@ -2,6 +2,8 @@
 - Accepted to UAI 2022
 - https://openreview.net/forum?id=HFbf9PIjqgq
 - This repository is the official implementation by the authors.
+- Watch our [poster](./poster_choi_500.pdf) or the [1 minute video presentation of this paper](./presentation_choi_500.mp4) for more details.
+
 
 ## Environment
 - Python 3.7.4
