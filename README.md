@@ -21,4 +21,4 @@
 - CIFAR-10: Run with `python3 experiments_self_contrastive.py --dataset cifar10 --loss {LOSS} --batch_size 10 --model resnet18 --epochs 100 --remove_fc --seed {SEED} --device 0`
 ### Supervised learning benchmark (CLB)
 - CIFAR-100: Run with `python3 experiments_classification.py --dataset cifar100 --loss {LOSS} --batch_size 100 --model resnet18 --epochs 100 --seed {SEED} --device 0`
-- CIFAR-10: Run with `python3 experiments_self_contrastive.py --dataset cifar10 --loss {LOSS} --batch_size 10 --model resnet18 --epochs 40 --seed {SEED} --device 0`
+- CIFAR-10: Run with `python3 experiments_classification.py --dataset cifar10 --loss {LOSS} --batch_size 10 --model resnet18 --epochs 40 --seed {SEED} --device 0`
