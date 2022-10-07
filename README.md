@@ -1,7 +1,7 @@
 # Combating the Instability of Mutual Information-based Losses via Regularization
 <a href="http://www.youtube.com/watch?feature=player_embedded&v=qsQfUAw1qHs
 " target="_blank"><img src="http://img.youtube.com/vi/qsQfUAw1qHs/0.jpg" 
-alt="IMAGE ALT TEXT HERE" width="360" height="270" border="10" /></a>
+alt="presentation" width="360" height="270" border="10" /></a>
 - Accepted to UAI 2022
 - https://openreview.net/forum?id=HFbf9PIjqgq
 - This repository is the official implementation by the authors.
